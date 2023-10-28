@@ -1,5 +1,8 @@
 module SurvivalModels
 
-# Write your package code here.
+using Optim, LogExpFunctions
+
+export WeibullEstimator, ExponentialEstimator, MixtureCureEstimator, fit
+include("parametric.jl")
 
 end
