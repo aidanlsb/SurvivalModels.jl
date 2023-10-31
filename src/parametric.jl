@@ -44,17 +44,18 @@ num_params(estimator::WeibullEstimator) = 2
 num_params(estimator::ExponentialEstimator) = 1
 num_params(estimator::MixtureCureEstimator) = num_params(estimator.base_estimator) + 1
 
+# TODO: figure out what to do here
+const MAX = log(floatmax(Float64)) - 75
+function safe_exp(x)
+    return exp.(clamp.(x, -Inf, MAX))
+end
+
 # Link functions
 exp_links(estimator::ParametricEstimator) = [exp for _ in 1:num_params(estimator)]
 param_links(estimator::WeibullEstimator) = exp_links(estimator)
 param_links(estimator::ExponentialEstimator) = exp_links(estimator)
 param_links(estimator::MixtureCureEstimator) = vcat([logistic], param_links(estimator.base_estimator))
 
-# TODO: figure out what to do here
-const MAX = floatmax(Float64)
-function safe_exp(x)
-    return clamp.(exp.(x), -Inf, MAX)
-end
 # function safe_exp(x)
 #     return exp.(x)
 # end
