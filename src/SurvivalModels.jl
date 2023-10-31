@@ -1,6 +1,6 @@
 module SurvivalModels
 
-using Optim, LogExpFunctions
+using Optim, LogExpFunctions, Optimization, OptimizationOptimJL
 
 export WeibullEstimator, ExponentialEstimator, MixtureCureEstimator, fit
 include("parametric.jl")

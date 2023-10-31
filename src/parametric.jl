@@ -50,10 +50,14 @@ param_links(estimator::WeibullEstimator) = exp_links(estimator)
 param_links(estimator::ExponentialEstimator) = exp_links(estimator)
 param_links(estimator::MixtureCureEstimator) = vcat([logistic], param_links(estimator.base_estimator))
 
+# TODO: figure out what to do here
 const MAX = floatmax(Float64)
 function safe_exp(x)
-    return exp.(clamp.(x, -Inf, MAX))
+    return clamp.(exp.(x), -Inf, MAX)
 end
+# function safe_exp(x)
+#     return exp.(x)
+# end
 
 function log_hazard(estimator::WeibullEstimator, ts, params)
     α = params[1]
@@ -79,7 +83,8 @@ function cumulative_hazard(esimator::ExponentialEstimator, ts, params)
 end
 
 function survival_function(estimator::ParametricEstimator, ts, params)
-    return exp.(-cumulative_hazard(estimator, ts, params))
+    # this can be zero, which causes numerical errors when we take the log so add small positive value
+    return exp.(-cumulative_hazard(estimator, ts, params)) .+ 1e-25
 end
 
 function neg_log_likelihood(estimator::ParametricEstimator, ts, e, params)
@@ -113,11 +118,20 @@ function neg_log_likelihood(estimator::MixtureCureEstimator, ts, e, params)
     return -1.0 * ll
 end
 
-function param_optimization(estimator::ParametricEstimator, obj)
-    x0 = rand(num_params(estimator))
-    res = optimize(obj, x0, NelderMead())
-    return Optim.minimizer(res)
-end
+# function param_optimization(estimator::ParametricEstimator, obj)
+#     x0 = rand(num_params(estimator))
+#     res = optimize(obj, x0, NelderMead())
+#     return Optim.minimizer(res)
+# end
+
+# function param_optimization(estimator::ParametricEstimator, obj, p)
+#     obj(x, p) = neg_log_likelihood(estimator, p[:, 1], p[:, 2], )
+
+#     optf = OptimizationFunction(obj_mc_2, Optimization.AutoForwardDiff())
+#     prob = OptimizationProblem(optf, x0_mc, p)
+#     u = solve(prob, LBFGS())
+#     return u
+
 
 function link_to_params(link_funcs, params)
     return [lf(p) for (lf, p) in zip(link_funcs, params)]
@@ -126,8 +140,17 @@ end
 function fit(estimator::ParametricEstimator, ts, e)
     link_funcs = param_links(estimator)
     linker(x) = link_to_params(link_funcs, x)
-    obj(x) = neg_log_likelihood(estimator, ts, e, linker(x))
-    x = param_optimization(estimator, obj)
+
+    # new
+    p = [ts e]
+    obj(x, p) = neg_log_likelihood(estimator, p[:, 1], p[:, 2], linker(x))
+    optf = OptimizationFunction(obj, Optimization.AutoForwardDiff())
+
+    x0 = randn(num_params(estimator))
+    prob = OptimizationProblem(optf, x0, p)
+    x = solve(prob, NelderMead())
+    print(x.original)
+    # x = param_optimization(estimator, obj)
     x_transformed = linker(x)
     return make_fitted(estimator, x_transformed)
 end
