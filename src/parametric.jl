@@ -13,7 +13,7 @@ struct FittedExponentialEstimator <: FittedParametricEstimator
 end
 
 FittedWeibullEstimator(x) = FittedWeibullEstimator(x[1], x[2])
-FittedExponentialEstimator(x) = FittedExponentialEstimator(x[1])
+FittedExponentialEstimator(x::AbstractArray) = FittedExponentialEstimator(x[1])
 
 struct MixtureCureEstimator <: ParametricEstimator 
     base_estimator::ParametricEstimator
