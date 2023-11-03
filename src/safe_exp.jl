@@ -1,5 +1,5 @@
 
-# TODO: need to figure out the proper treatment of the derivative
+# exp that is capped with some room
 const MAX = log(floatmax(Float64)) - 75
 function safe_exp(x)
     return exp(clamp(x, -Inf, MAX))

@@ -76,7 +76,7 @@ function cumulative_hazard(esimator::ExponentialEstimator, ts, params)
 end
 
 function survival_function(estimator::ParametricEstimator, ts, params)
-    # this can be zero, which causes numerical errors when we take the log so add small positive value
+    # this can be zero, which causes numerical errors when we take the log so add eps
     return exp.(-cumulative_hazard(estimator, ts, params)) .+ 1e-25
 end
 
@@ -142,10 +142,12 @@ function fit(estimator::ParametricEstimator, ts, e)
     # change to zeros?
     x0 = zeros(num_params(estimator))
     prob = OptimizationProblem(optf, x0, p)
-    x = solve(prob, LBFGS())
+    β = solve(prob, LBFGS())
+    H = ForwardDiff.hessian(x -> obj(x, p), β)
+    println(H)
     # print(x.original)
     # x = param_optimization(estimator, obj)
-    x_transformed = linker(x)
-    return make_fitted(estimator, x_transformed)
+    β_transformed = linker(β)
+    return make_fitted(estimator, β_transformed)
 end
 
