@@ -44,11 +44,6 @@ num_params(estimator::WeibullEstimator) = 2
 num_params(estimator::ExponentialEstimator) = 1
 num_params(estimator::MixtureCureEstimator) = num_params(estimator.base_estimator) + 1
 
-# TODO: figure out what to do here
-const MAX = log(floatmax(Float64)) - 75
-function safe_exp(x)
-    return exp.(clamp.(x, -Inf, MAX))
-end
 
 # Link functions
 exp_links(estimator::ParametricEstimator) = [exp for _ in 1:num_params(estimator)]
@@ -56,9 +51,6 @@ param_links(estimator::WeibullEstimator) = exp_links(estimator)
 param_links(estimator::ExponentialEstimator) = exp_links(estimator)
 param_links(estimator::MixtureCureEstimator) = vcat([logistic], param_links(estimator.base_estimator))
 
-# function safe_exp(x)
-#     return exp.(x)
-# end
 
 function log_hazard(estimator::WeibullEstimator, ts, params)
     α = params[1]
@@ -147,11 +139,13 @@ function fit(estimator::ParametricEstimator, ts, e)
     obj(x, p) = neg_log_likelihood(estimator, p[:, 1], p[:, 2], linker(x))
     optf = OptimizationFunction(obj, Optimization.AutoForwardDiff())
 
-    x0 = randn(num_params(estimator))
+    # change to zeros?
+    x0 = zeros(num_params(estimator))
     prob = OptimizationProblem(optf, x0, p)
-    x = solve(prob, NelderMead())
-    print(x.original)
+    x = solve(prob, LBFGS())
+    # print(x.original)
     # x = param_optimization(estimator, obj)
     x_transformed = linker(x)
     return make_fitted(estimator, x_transformed)
 end
+
