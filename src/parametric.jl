@@ -22,6 +22,7 @@ end
 struct FittedMixtureCureEstimator <: FittedParametricEstimator
     cured_fraction::Float64
     base_estimator::FittedParametricEstimator
+    sol
 end
 
 # Mappings, maybe a better way to do this
@@ -33,10 +34,10 @@ function make_fitted(estimator::ParametricEstimator, params)
     return fitted_type(params)
 end
 
-function make_fitted(estimator::MixtureCureEstimator, params)
+function make_fitted(estimator::MixtureCureEstimator, params, sol)
     cured_fraction = params[1]
     fitted_base_estimator = make_fitted(estimator.base_estimator, params[2:end])
-    return FittedMixtureCureEstimator(cured_fraction, fitted_base_estimator)
+    return FittedMixtureCureEstimator(cured_fraction, fitted_base_estimator, sol)
 end
 
 # Parameter counts, to use in link function generation and optimization initialization
@@ -130,24 +131,28 @@ function link_to_params(link_funcs, params)
     return [lf(p) for (lf, p) in zip(link_funcs, params)]
 end
 
-function fit(estimator::ParametricEstimator, ts, e)
+function get_linker(estimator::ParametricEstimator)
     link_funcs = param_links(estimator)
     linker(x) = link_to_params(link_funcs, x)
+    return linker
+end
 
-    # new
+
+function fit(estimator::ParametricEstimator, ts, e)
+    linker = get_linker(estimator)
+
     p = [ts e]
     obj(x, p) = neg_log_likelihood(estimator, p[:, 1], p[:, 2], linker(x))
     optf = OptimizationFunction(obj, Optimization.AutoForwardDiff())
 
     # change to zeros?
-    x0 = zeros(num_params(estimator))
+    x0 = ones(num_params(estimator))
+    # println("Initial values are $x0")
     prob = OptimizationProblem(optf, x0, p)
-    β = solve(prob, LBFGS())
-    H = ForwardDiff.hessian(x -> obj(x, p), β)
-    println(H)
+    β = solve(prob, NelderMead())
     # print(x.original)
     # x = param_optimization(estimator, obj)
-    β_transformed = linker(β)
-    return make_fitted(estimator, β_transformed)
+    # β_transformed = linker(β)
+    return make_fitted(estimator, β, β.original)
 end
 
