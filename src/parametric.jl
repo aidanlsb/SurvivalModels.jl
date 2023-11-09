@@ -68,6 +68,7 @@ end
 function cumulative_hazard(estimator::WeibullEstimator, ts, params)
     α = params[1]
     θ = params[2]
+    # TODO: reinstate safe
     return safe_exp.(α .* (log.(ts) .- log(θ)))
 end
 
@@ -118,9 +119,12 @@ function neg_log_likelihood(estimator::MixtureCureEstimator, ts, e, params)
     return -1.0 * ll
 end
 
-function param_optimization(estimator::AbstractParametricEstimator, obj)
-    x0 = rand(num_params(estimator))
-    res = optimize(obj, x0, NelderMead())
+function param_optimization(estimator::AbstractParametricEstimator, obj, x0)
+    # x0 = zeros(num_params(estimator))
+    # x0 = [-3.0, 0.0, 0.0]
+    func = TwiceDifferentiable(obj, x0, autodiff=:forward)
+    res = optimize(func, x0, Newton())
+    println(res)
     return Optim.minimizer(res)
 end
 
@@ -134,11 +138,17 @@ function get_linker(estimator::AbstractParametricEstimator)
     return linker
 end
 
+function initialize_params(estimator::MixtureCureEstimator, ts, e)
+    x0 = zeros(num_params(estimator))
+    x0[end] = log(mean(ts))
+    return x0
+end
 
 function fit(estimator::AbstractParametricEstimator, ts, e)
     linker = get_linker(estimator)
     obj(x) = neg_log_likelihood(estimator, ts, e, linker(x))
-    β = param_optimization(estimator, obj)
+    x0 = initialize_params(estimator, ts, e)
+    β = param_optimization(estimator, obj, x0)
     # β_transformed = linker(β)
     return make_fitted(estimator, β)
 end

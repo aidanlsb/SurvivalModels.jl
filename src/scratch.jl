@@ -24,10 +24,15 @@ function sim_mixture_cure(dist, c; N=10_000, thresh=1.0)
     return DataFrame(x=x, observed=observed)
 end
 
-df = sim_mixture_cure(Weibull(0.5, 120), 0.3; N=10_000, thresh=100)
+df = sim_mixture_cure(Weibull(0.40, 130945), 0.96; N=100_000, thresh=30_000)
 mcb = MixtureCureEstimator(WeibullEstimator())
-mc = SurvivalModels.fit(MixtureCureEstimator(WeibullEstimator()), df.x, df.observed)
+mc = SurvivalModels.fit(mcb, df.x, df.observed)
 
+
+import SurvivalModels: neg_log_likelihood, cumulative_hazard, log_hazard
+
+params = [logistic(-3.0), exp(-0.9), exp(5.02)]
+nll = neg_log_likelihood(mcb, df.x, df.observed, params)
 
 ci = confint(mc, df.x, df.observed)
 
