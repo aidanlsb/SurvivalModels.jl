@@ -41,6 +41,7 @@ function sim_mixture_cure_reg(β_c, β_α, β_θ; N=10_000, thresh=1.0)
             dist = Weibull(α[i], θ[i])
             d = rand(dist) 
             if d > thresh
+                observed[i] = false
                 t[i] = thresh
             else 
                 observed[i] = true
@@ -57,7 +58,15 @@ df = sim_mixture_cure(Weibull(0.40, 130945), 0.96; N=100_000, thresh=30_000)
 mcb = MixtureCureEstimator(WeibullEstimator())
 mc = SurvivalModels.fit(mcb, df.t, df.observed)
 
-# df_reg = sim_mixture_cure_reg([-0.25], [0.9], [0.45]; N=100_000)
+# df_reg = sim_mixture_cure_reg([-0.25], [0.9], [0.45]; N=100_000, thresh=10)
+df_reg = sim_mixture_cure_reg([0], [0], [0]; N=100_000, thresh=10)
+t = df_reg.t
+e = df_reg.observed
+X = Matrix(df_reg[:, [:intercept]])
+tmp = SurvivalModels.initialize_params(mcb, t, e, X)
+
+mcr = SurvivalModels.fit(mcb, t, e, X)
+mc_regular = SurvivalModels.fit(mcb, t, e)
 
 # import SurvivalModels: neg_log_likelihood, cumulative_hazard, log_hazard
 ci = confint(mc, df.t, df.observed)
@@ -77,9 +86,9 @@ function run_sim()
     theta_real = 3.0
     df = sim_mixture_cure(Weibull(exp(alpha_real), exp(theta_real)), 1 - logistic(c_real); N=10_000, thresh=100)
     mcb = MixtureCureEstimator(WeibullEstimator())
-    mc = SurvivalModels.fit(mcb, df.x, df.observed)
+    mc = SurvivalModels.fit(mcb, df.t, df.observed)
 
-    lo, hi = confint(mc, df.x, df.observed)
+    lo, hi = confint(mc, df.t, df.observed)
 
     c_covered = lo[1] .<= c_real .<= hi[1]
     alpha_covered = lo[2] .<= alpha_real .<= hi[2]
@@ -91,7 +100,7 @@ end
 N_sims = 1_000
 estimates = Array{Float64}(undef, N_sims, 3)
 p = Progress(N_sims)
-Threads.@threads for i in 1:N_sims
+for i in 1:N_sims
     covered_sim = run_sim()
     estimates[i, :] = covered_sim
     next!(p)
@@ -105,3 +114,24 @@ println("Coverage for alpha is $p_alpha")
 p_theta = mean(estimates[:, 3])
 println("Coverage for theta is $p_theta")
 
+c_real = 0.9
+alpha_real = -0.7
+theta_real = 3.0
+# uncomment to regenerate
+df = sim_mixture_cure(Weibull(exp(alpha_real), exp(theta_real)), 1 - logistic(c_real); N=10_000, thresh=100)
+mcb = MixtureCureEstimator(WeibullEstimator())
+mc = SurvivalModels.fit(mcb, df.t, df.observed)
+
+lo, hi = confint(mc, df.t, df.observed)
+
+# c_covered = lo[1] .<= c_real .<= hi[1]
+# alpha_covered = lo[2] .<= alpha_real .<= hi[2]
+# theta_covered = lo[3] .<= theta_real .<= hi[3]
+# covered = [c_covered, alpha_covered, theta_covered]
+using SurvivalModels: neg_log_likelihood
+ps = [-51.487038016963815, 69.02711352578525, -388.0322041182619]
+nll(x) = neg_log_likelihood(mcb, df.t, df.observed, x)
+H = ForwardDiff.hessian(x -> nll(x), ps)
+
+t = nll(ps)
+d = ForwardDiff.gradient(x -> nll(x), ps)

@@ -65,13 +65,13 @@ function log_hazard(estimator::WeibullEstimator, ts, params)
     return log(α) .- log(θ) .+ (α - 1) .* (log.(ts) .- log(θ))
 end
 
+
 function cumulative_hazard(estimator::WeibullEstimator, ts, params)
     α = params[1]
     θ = params[2]
     # TODO: reinstate safe?
-    return exp.(α .* (log.(ts) .- log(θ)))
+    return safe_exp.(α .* (log.(ts) .- log(θ)))
 end
-
 
 function log_hazard(estimator::ExponentialEstimator, ts, params)
     θ = params[1]
@@ -83,9 +83,10 @@ function cumulative_hazard(estimator::ExponentialEstimator, ts, params)
     return ts ./ θ
 end
 
+
 function survival_function(estimator::AbstractParametricEstimator, ts, params)
     # this can be zero, which causes numerical errors when we take the log so add eps
-    return exp.(-cumulative_hazard(estimator, ts, params)) .+ 1e-25
+    return safe_exp.(-cumulative_hazard(estimator, ts, params)) .+ 1e-25
 end
 
 function link_to_params(link_funcs, params)
@@ -100,6 +101,7 @@ end
 
 """ Assumes unconstrained params"""
 function neg_log_likelihood(estimator::AbstractParametricEstimator, ts, e, params)
+    println("Shape of input: $(size(params))")
     linker = get_linker(estimator)
     transformed_params = linker(params)
     lh = e .* log_hazard(estimator, ts, transformed_params)
@@ -125,6 +127,7 @@ function cumulative_hazard(estimator::MixtureCureEstimator, ts, params)
     return -1.0 .* log.(c .* s .+ (1 .- c))
 end
 
+
 # """
 # Assumes the params are unconstrained real numbers. Link function transforms to relevant ranges
 # """
@@ -136,10 +139,11 @@ end
 #     return -1.0 * ll
 # end
 
+# TODO: need to figure out how to deal with x0 as a matrix
 function param_optimization(estimator::AbstractParametricEstimator, obj, x0)
     func = TwiceDifferentiable(obj, x0, autodiff=:forward)
-    res = optimize(func, x0, Newton())
-    println(res)
+    res = optimize(func, x0, LBFGS())
+    # println(res)
     return Optim.minimizer(res)
 end
 
@@ -151,9 +155,9 @@ function initialize_params(estimator::MixtureCureEstimator, ts, e)
 end
 
 # TODO: move this
-num_params(estimator::AbstractParametricEstimator, X) = num_params(estimator) * size(X, 1) 
+num_params(estimator::AbstractParametricEstimator, X) = num_params(estimator) * size(X, 2) 
+
 function initialize_params(estimator::MixtureCureEstimator, ts, e, X)
-    # x0 = 
 end
 
 function fit(estimator::AbstractParametricEstimator, ts, e)
@@ -163,10 +167,15 @@ function fit(estimator::AbstractParametricEstimator, ts, e)
     β = param_optimization(estimator, obj, x0)
     # β_transformed = linker(β)
     return make_fitted(estimator, β)
-    # return β
 end
 
-function fit(estimator::AbstractFittedParametricEstimator, ts, e, X)
+
+function fit(estimator::AbstractParametricEstimator, ts, e, X)
+    obj(x) = neg_log_likelihood(estimator, ts, e, X * reform_β(x, X))
+    x0 = initialize_params(estimator, ts, e, X)
+    β = param_optimization(estimator, obj, β0)
+    # TODO: make fitted for reg result
+    return β    
 end
 
 get_params(estimator::FittedWeibullEstimator) = [estimator.α, estimator.θ]
@@ -175,8 +184,9 @@ get_params(estimator::FittedMixtureCureEstimator) = vcat([estimator.cured_fracti
 
 function confint(fitted::AbstractFittedParametricEstimator, ts, e; confidence_level=0.95)
     β = get_params(fitted) 
+    # println(β)
     estimator = estimator_from_fitted(fitted)
-    linker = get_linker(estimator)
+    # linker = get_linker(estimator)
     nll(x) = neg_log_likelihood(estimator, ts, e, x)
     H = ForwardDiff.hessian(x -> nll(x), β)
     variance = inv(H)
