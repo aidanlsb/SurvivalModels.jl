@@ -59,11 +59,16 @@ mcb = MixtureCureEstimator(WeibullEstimator())
 mc = SurvivalModels.fit(mcb, df.t, df.observed)
 
 # df_reg = sim_mixture_cure_reg([-0.25], [0.9], [0.45]; N=100_000, thresh=10)
-df_reg = sim_mixture_cure_reg([0], [0], [0]; N=100_000, thresh=10)
+df_reg = sim_mixture_cure_reg([2.3], [1.5], [-0.4]; N=100_000, thresh=10)
 t = df_reg.t
 e = df_reg.observed
-X = Matrix(df_reg[:, [:intercept]])
-tmp = SurvivalModels.initialize_params(mcb, t, e, X)
+X = Matrix(df_reg[:, [:x]])
+
+obj(x) = SurvivalModels.neg_log_likelihood(mcb, t, e, SurvivalModels.compute_params(mcb, x, X))
+x0 = SurvivalModels.initialize_params(mcb, t, e, X)
+β = SurvivalModels.param_optimization(mcb, obj, x0)
+c0 = SurvivalModels.compute_params(mcb, x0, X)
+SurvivalModels.neg_log_likelihood(mcb, t, e, c0)
 
 mcr = SurvivalModels.fit(mcb, t, e, X)
 mc_regular = SurvivalModels.fit(mcb, t, e)
