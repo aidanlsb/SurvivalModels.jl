@@ -4,42 +4,67 @@ using LogExpFunctions
 
 function sim_mixture_cure(dist, c; N=10_000, thresh=1.0)
     cured = rand(Bernoulli(c), N)
-    x = Array{Float64}(undef, N)
+    t = Array{Float64}(undef, N)
     observed = Array{Bool}(undef, N)
     for (i, c) in enumerate(cured)
         if c
             observed[i] = false       
-            x[i] = thresh
+            t[i] = thresh
         else
             d = rand(dist)
             if d > thresh
                 observed[i] = false
-                x[i] = thresh
+                t[i] = thresh
             else
                 observed[i] = true
-                x[i] = d
+                t[i] = d
             end
         end
     end
-    return DataFrame(x=x, observed=observed)
+    return DataFrame(t=t, observed=observed)
+end
+
+function sim_mixture_cure_reg(β_c, β_α, β_θ; N=10_000, thresh=1.0)
+    # cured = rand(Bernoulli(c), N)
+    t = Array{Float64}(undef, N)
+    x = rand(Normal(), N)
+    observed = Array{Bool}(undef, N)
+    α = exp.(0.5 .+ x .* β_α)
+    θ = exp.(0.75 .+ x .* β_θ)
+    c_ = logistic.(2.0 .+ x .* β_c)
+    for i in 1:N
+        c = rand(Bernoulli(c_[i]))
+        if c 
+            observed[i] = false
+            t[i] = thresh
+        else
+            dist = Weibull(α[i], θ[i])
+            d = rand(dist) 
+            if d > thresh
+                t[i] = thresh
+            else 
+                observed[i] = true
+                t[i] = d
+            end
+        end
+    end
+    df = DataFrame(t=t, x=x, observed=observed)
+    df.intercept = ones(Float64, nrow(df))
+    return df
 end
 
 df = sim_mixture_cure(Weibull(0.40, 130945), 0.96; N=100_000, thresh=30_000)
 mcb = MixtureCureEstimator(WeibullEstimator())
-mc = SurvivalModels.fit(mcb, df.x, df.observed)
+mc = SurvivalModels.fit(mcb, df.t, df.observed)
 
+# df_reg = sim_mixture_cure_reg([-0.25], [0.9], [0.45]; N=100_000)
 
-import SurvivalModels: neg_log_likelihood, cumulative_hazard, log_hazard
-
-params = [logistic(-3.0), exp(-0.9), exp(5.02)]
-nll = neg_log_likelihood(mcb, df.x, df.observed, params)
-
-ci = confint(mc, df.x, df.observed)
-
+# import SurvivalModels: neg_log_likelihood, cumulative_hazard, log_hazard
+ci = confint(mc, df.t, df.observed)
 
 ll = pyimport("lifelines")
 mcpy = ll.MixtureCureFitter(base_fitter=ll.WeibullFitter())
-mcpy.fit(df.x, event_observed=df.observed)
+mcpy.fit(df.t, event_observed=df.observed)
 
 println("Cured fraction from lifelines is $(1 - mcpy.cured_fraction_) and from this package is $(logistic(mc.cured_fraction))")
 println("α from lifelines is $(mcpy.rho_) and from this package is $(exp(mc.base_estimator.α))")
