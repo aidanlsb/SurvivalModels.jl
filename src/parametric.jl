@@ -7,44 +7,52 @@ struct FittedWeibullEstimator <: AbstractFittedParametricEstimator
     θ::Float64
 end
 
-
-struct ExponentialEstimator <: AbstractParametricEstimator end
-struct FittedExponentialEstimator <: AbstractFittedParametricEstimator
-    θ::Float64
+# TODO: remove super type if unnecessary
+struct FittedParametricEstimator{T} <: AbstractFittedParametricEstimator where T <: Real
+    estimator::AbstractParametricEstimator
+    params::Array{T}
 end
 
 
-FittedWeibullEstimator(x) = FittedWeibullEstimator(x[1], x[2])
-FittedExponentialEstimator(x::AbstractArray) = FittedExponentialEstimator(x[1])
+struct ExponentialEstimator <: AbstractParametricEstimator end
+# struct FittedExponentialEstimator <: AbstractFittedParametricEstimator
+#     θ::Float64
+# end
+
+
+# FittedWeibullEstimator(x) = FittedWeibullEstimator(x[1], x[2])
+# FittedExponentialEstimator(x::AbstractArray) = FittedExponentialEstimator(x[1])
 struct MixtureCureEstimator <: AbstractParametricEstimator 
     base_estimator::AbstractParametricEstimator
 end
 
-struct FittedMixtureCureEstimator <: AbstractFittedParametricEstimator
-    cured_fraction::Float64
-    base_estimator::AbstractFittedParametricEstimator
-end
+# struct FittedMixtureCureEstimator <: AbstractFittedParametricEstimator
+#     cured_fraction::Float64
+#     base_estimator::AbstractFittedParametricEstimator
+# end
 
 # Mappings, maybe a better way to do this
-fitted_from_estimator(estimator::WeibullEstimator) = FittedWeibullEstimator
-fitted_from_estimator(estimator::ExponentialEstimator) = FittedExponentialEstimator
-fitted_from_estimator(estimator::MixtureCureEstimator) = FittedMixtureCureEstimator
+# fitted_from_estimator(estimator::WeibullEstimator) = FittedWeibullEstimator
+# fitted_from_estimator(estimator::ExponentialEstimator) = FittedExponentialEstimator
+# fitted_from_estimator(estimator::MixtureCureEstimator) = FittedMixtureCureEstimator
 
-estimator_from_fitted(fitted::FittedWeibullEstimator) = WeibullEstimator()
-estimator_from_fitted(fitted::FittedExponentialEstimator) = ExponentialEstimator()
-estimator_from_fitted(fitted::FittedMixtureCureEstimator) = MixtureCureEstimator(estimator_from_fitted(fitted.base_estimator))
+estimator_from_fitted(fitted::FittedParametricEstimator) = fitted.estimator
 
-function make_fitted(estimator::AbstractParametricEstimator, params)
-    fitted_type = fitted_from_estimator(estimator)
-    return fitted_type(params)
-end
+# estimator_from_fitted(fitted::FittedWeibullEstimator) = WeibullEstimator()
+# estimator_from_fitted(fitted::FittedExponentialEstimator) = ExponentialEstimator()
+# estimator_from_fitted(fitted::FittedMixtureCureEstimator) = MixtureCureEstimator(estimator_from_fitted(fitted.base_estimator))
 
-function make_fitted(estimator::MixtureCureEstimator, params)
-    cured_fraction = params[1]
-    base_params = params[2:end]
-    fitted_base_estimator = make_fitted(estimator.base_estimator, base_params)
-    return FittedMixtureCureEstimator(cured_fraction, fitted_base_estimator)
-end
+# function make_fitted(estimator::AbstractParametricEstimator, params)
+#     fitted_type = fitted_from_estimator(estimator)
+#     return fitted_type(params)
+# end
+
+# function make_fitted(estimator::MixtureCureEstimator, params)
+#     cured_fraction = params[1]
+#     base_params = params[2:end]
+#     fitted_base_estimator = make_fitted(estimator.base_estimator, base_params)
+#     return FittedMixtureCureEstimator(cured_fraction, fitted_base_estimator)
+# end
 
 # Parameter counts, to use in link function generation and optimization initialization
 num_params(estimator::WeibullEstimator) = 2
@@ -96,58 +104,10 @@ function cumulative_hazard(estimator::ExponentialEstimator, ts, params)
     return ts ./ θ
 end
 
-
-function survival_function(estimator::AbstractParametricEstimator, ts, params)
-    # this can be zero, which causes numerical errors when we take the log so add eps
-    return safe_exp.(-cumulative_hazard(estimator, ts, params)) .+ 1e-25
-end
-
-function link_to_params(link_funcs, params)
-    return [lf(p) for (lf, p) in zip(link_funcs, params)]
-end
-
-function get_linker(estimator::AbstractParametricEstimator)
-    link_funcs = param_links(estimator)
-    linker(x) = link_to_params(link_funcs, x)
-    return linker
-end
-
-""" Assumes unconstrained params"""
-function neg_log_likelihood(estimator::AbstractParametricEstimator, ts, e, params)
-    linker = get_linker(estimator)
-    transformed_params = linker(params)
-    lh = e .* log_hazard(estimator, ts, transformed_params)
-    ch = cumulative_hazard(estimator, ts, transformed_params)
-    ll = sum(lh) - sum(ch)
-    return -1.0 * ll
-end
-
-function neg_log_likelihood(estimator::AbstractParametricEstimator, ts, e, params::Matrix)
-    linker = get_linker(estimator)
-    N = length(ts)
-    ll = 0.0
-    for i in 1:N
-        transformed_params = linker(params[i, :])
-        lh = e[i] .* log_hazard(estimator, ts[i], transformed_params)
-        ch = cumulative_hazard(estimator, ts[i], transformed_params)
-        ll += (lh - ch)
-    end
-    return -1.0 * ll
-end
-
 # Mixture Cure
 function log_hazard(estimator::MixtureCureEstimator, ts, params)
     c = params[1]
     base_params = params[2:end]
-    s = survival_function(estimator.base_estimator, ts, base_params)
-    lh = log_hazard(estimator.base_estimator, ts, base_params)
-    ch = -1.0 .* log.((1.0 - c) .+ c .* s)
-    return log(c) .+ log.(s) .+ lh .+ ch
-end
-
-function log_hazard(estimator::MixtureCureEstimator, ts, params::Matrix)
-    c = params[:, 1]
-    base_params = params[:, 2:end]
     s = survival_function(estimator.base_estimator, ts, base_params)
     lh = log_hazard(estimator.base_estimator, ts, base_params)
     ch = -1.0 .* log.((1.0 - c) .+ c .* s)
@@ -161,14 +121,80 @@ function cumulative_hazard(estimator::MixtureCureEstimator, ts, params)
     return -1.0 .* log.(c .* s .+ (1 .- c))
 end
 
-function cumulative_hazard(estimator::MixtureCureEstimator, ts, params::Matrix)
-    c = params[:, 1]
-    base_params = params[:, 2:end]
-    s = survival_function(estimator.base_estimator, ts, base_params)
-    return -1.0 .* log.(c .* s .+ (1 .- c))
+
+function survival_function(estimator::AbstractParametricEstimator, ts, params)
+    # this can be zero, which causes numerical errors when we take the log so add eps
+    # TODO: maybe can remove `safe`?
+    return safe_exp.(-cumulative_hazard(estimator, ts, params)) .+ 1e-25
 end
 
-# TODO: need to figure out how to deal with x0 as a matrix
+function link_to_params(link_funcs, params::Vector)
+    return [lf(p) for (lf, p) in zip(link_funcs, params)]
+end
+
+function link_to_params(link_funcs, params::Matrix)
+    n, m = size(params)
+    output = Array{eltype(params)}(undef, n, m)
+    for i in 1:n
+        output[i, :] = link_to_params(link_funcs, params[i, :])
+    end
+    return output
+end
+
+# function get_linker(estimator::AbstractParametricEstimator)
+#     link_funcs = param_links(estimator)
+#     linker(x) = link_to_params(link_funcs, x)
+#     return linker
+# end
+
+# function neg_log_likelihood(estimator::AbstractParametricEstimator, ts, e, params)
+#     linker = get_linker(estimator)
+#     transformed_params = linker(params)
+#     lh = e .* log_hazard(estimator, ts, transformed_params)
+#     ch = cumulative_hazard(estimator, ts, transformed_params)
+#     ll = sum(lh) - sum(ch)
+#     return -1.0 * ll
+# end
+
+"""
+Compute negative log likelihood for a single observation and set of parameters.
+"""
+function neg_log_likelihood_inner(estimator::AbstractParametricEstimator, ts::T, e::Bool, transformed_params::Vector) where T <: Real
+    lh = e * log_hazard(estimator, ts, transformed_params)
+    ch = cumulative_hazard(estimator, ts, transformed_params)
+    return -1.0 * (lh - ch)
+end
+
+"""
+Compute NLL for all observations, assuming one set of parameters (i.e., not the regression case).
+"""
+function neg_log_likelihood_inner(estimator::AbstractParametricEstimator, ts::Vector{T}, e::Vector{Bool}, transformed_params::Vector) where T <: Real
+    ll = 0.0
+    N = length(ts)
+    for i in 1:N
+        ll += neg_log_likelihood_inner(estimator, ts[i], e[i], transformed_params)
+    end
+    return ll
+end
+
+"""
+Compute NLL for all observations, assuming individual params for each obs (i.e., the regression case).
+"""
+function neg_log_likelihood_inner(estimator::AbstractParametricEstimator, ts::Vector{T}, e::Vector{Bool}, transformed_params::Matrix) where T <: Real
+    ll = 0.0
+    N = length(ts)
+    for i in 1:N
+        ll += neg_log_likelihood_inner(estimator, ts[i], e[i], transformed_params[i, :])
+    end
+    return ll
+end
+
+function neg_log_likelihood(estimator::AbstractParametricEstimator, ts, e, params)
+    link_funcs = param_links(estimator)
+    transformed_params = link_to_params(link_funcs, params)
+    return neg_log_likelihood_inner(estimator, ts, e, transformed_params)
+end
+
 function param_optimization(estimator::AbstractParametricEstimator, obj, x0)
     func = TwiceDifferentiable(obj, x0, autodiff=:forward)
     res = optimize(func, x0, LBFGS())
@@ -184,6 +210,7 @@ function initialize_params(estimator::MixtureCureEstimator, ts, e)
     return x0
 end
 
+# TODO: improve this 
 function initialize_params(estimator::MixtureCureEstimator, ts, e, X)
     num_predictors = size(X, 2)
     num_parameters = num_params(estimator)
@@ -197,8 +224,7 @@ function fit(estimator::AbstractParametricEstimator, ts, e)
     obj(x) = neg_log_likelihood(estimator, ts, e, x)
     x0 = initialize_params(estimator, ts, e)
     β = param_optimization(estimator, obj, x0)
-    # β_transformed = linker(β)
-    return make_fitted(estimator, β)
+    return FittedParametricEstimator(estimator, β)
 end
 
 """ Given a vector of initialized params and X, deal with the shapes and return X\beta"""
@@ -223,11 +249,12 @@ function fit(estimator::AbstractParametricEstimator, ts, e, X)
     return β    
 end
 
-get_params(estimator::FittedWeibullEstimator) = [estimator.α, estimator.θ]
-get_params(estimator::FittedExponentialEstimator) = [estimator.θ]
-get_params(estimator::FittedMixtureCureEstimator) = vcat([estimator.cured_fraction], get_params(estimator.base_estimator))
+# get_params(estimator::FittedWeibullEstimator) = [estimator.α, estimator.θ]
+# get_params(estimator::FittedExponentialEstimator) = [estimator.θ]
+# get_params(estimator::FittedMixtureCureEstimator) = vcat([estimator.cured_fraction], get_params(estimator.base_estimator))
+get_params(estimator::FittedParametricEstimator) = estimator.params
 
-function confint(fitted::AbstractFittedParametricEstimator, ts, e; confidence_level=0.95)
+function confint(fitted::FittedParametricEstimator, ts, e; confidence_level=0.95)
     β = get_params(fitted) 
     # println(β)
     estimator = estimator_from_fitted(fitted)
