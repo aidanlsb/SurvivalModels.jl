@@ -25,7 +25,6 @@ function sim_mixture_cure(dist, c; N=10_000, thresh=1.0)
 end
 
 function sim_mixture_cure_reg(β_c, β_α, β_θ; N=10_000, thresh=1.0)
-    # cured = rand(Bernoulli(c), N)
     t = Array{Float64}(undef, N)
     x = rand(Normal(), N)
     observed = Array{Bool}(undef, N)
@@ -54,32 +53,29 @@ function sim_mixture_cure_reg(β_c, β_α, β_θ; N=10_000, thresh=1.0)
     return df
 end
 
-df = sim_mixture_cure(Weibull(0.40, 130945), 0.96; N=100_000, thresh=30_000)
-mcb = MixtureCureEstimator(WeibullEstimator())
-mc = SurvivalModels.fit(mcb, df.t, df.observed)
+# df = sim_mixture_cure(Weibull(0.40, 130945), 0.96; N=100_000, thresh=30_000)
+# mcb = MixtureCureEstimator(WeibullEstimator())
+# mc = SurvivalModels.fit(mcb, df.t, df.observed)
 
-df_reg = sim_mixture_cure_reg([2.3], [1.5], [0.4]; N=100_000, thresh=10)
-t = df_reg.t
-e = df_reg.observed
-println(mean(e))
-X = Matrix(df_reg[:, [:x]])
-mcr = SurvivalModels.fit(mcb, t, e, X)
-println(mcr)
-confint(mcr)
+# df_reg = sim_mixture_cure_reg([2.3], [1.5], [0.4]; N=100_000, thresh=10)
+# t = df_reg.t
+# e = df_reg.observed
+# println(mean(e))
+# X = Matrix(df_reg[:, [:x]])
+# mcr = SurvivalModels.fit(mcb, t, e, X)
+# println(mcr)
+# confint(mcr)
 
-# ci = confint(mcb, t, e, X)
+function compare_lifelines(df, mc)
+    ll = pyimport("lifelines")
+    mcpy = ll.MixtureCureFitter(base_fitter=ll.WeibullFitter())
+    mcpy.fit(df.t, event_observed=df.observed)
 
-# import SurvivalModels: neg_log_likelihood, cumulative_hazard, log_hazard
-ci = confint(mc, df.t, df.observed)
-
-ll = pyimport("lifelines")
-mcpy = ll.MixtureCureFitter(base_fitter=ll.WeibullFitter())
-mcpy.fit(df.t, event_observed=df.observed)
-
-println("Cured fraction from lifelines is $(1 - mcpy.cured_fraction_) and from this package is $(logistic(mc.params[1]))")
-println("α from lifelines is $(mcpy.rho_) and from this package is $(exp(mc.params[2]))")
-println("θ from lifelines is $(mcpy.lambda_) and from this package is $(exp(mc.params[3]))")
-
+    println("Cured fraction from lifelines is $(1 - mcpy.cured_fraction_) and from this package is $(logistic(mc.params[1]))")
+    println("α from lifelines is $(mcpy.rho_) and from this package is $(exp(mc.params[2]))")
+    println("θ from lifelines is $(mcpy.lambda_) and from this package is $(exp(mc.params[3]))")
+    return nothing
+end
 
 function run_sim()
     c_real = 0.9
@@ -89,7 +85,7 @@ function run_sim()
     mcb = MixtureCureEstimator(WeibullEstimator())
     mc = SurvivalModels.fit(mcb, df.t, df.observed)
 
-    lo, hi = confint(mc, df.t, df.observed)
+    lo, hi = confint(mc)
 
     c_covered = lo[1] .<= c_real .<= hi[1]
     alpha_covered = lo[2] .<= alpha_real .<= hi[2]
@@ -118,6 +114,5 @@ function check_cis()
     return nothing
 end
 
-check_cis()
 
 
