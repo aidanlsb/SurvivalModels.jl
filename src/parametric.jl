@@ -148,7 +148,7 @@ end
 """
 Compute NLL for all observations, assuming one set of parameters (i.e., not the regression case).
 """
-function neg_log_likelihood_inner(estimator::AbstractParametricEstimator, ts::Vector{T}, e::Vector{Bool}, transformed_params::Vector) where T <: Real
+function neg_log_likelihood_inner(estimator::AbstractParametricEstimator, ts::Vector{T}, e::Union{Vector{Bool}, BitVector}, transformed_params::Vector) where T <: Real
     ll = 0.0
     N = length(ts)
     for i in 1:N
@@ -160,7 +160,7 @@ end
 """
 Compute NLL for all observations, assuming individual params for each obs (i.e., the regression case).
 """
-function neg_log_likelihood_inner(estimator::AbstractParametricEstimator, ts::Vector{T}, e::Vector{Bool}, transformed_params::Matrix) where T <: Real
+function neg_log_likelihood_inner(estimator::AbstractParametricEstimator, ts::Vector{T}, e::Union{Vector{Bool}, BitVector}, transformed_params::Matrix) where T <: Real
     ll = 0.0
     N = length(ts)
     for i in 1:N
