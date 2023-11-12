@@ -66,11 +66,11 @@ println(mean(e))
 X = Matrix(df_reg[:, [:x]])
 mcr = SurvivalModels.fit(mcb, t, e, X)
 
+import SurvivalModels: initialize_params, compute_params, transform_params
 
-obj(x) = SurvivalModels.neg_log_likelihood(mcb, t, e, SurvivalModels.compute_params(mcb, x, X))
-x0 = SurvivalModels.initialize_params(mcb, t, e, X)
-β = SurvivalModels.param_optimization(mcb, obj, x0)
-c0 = SurvivalModels.compute_params(mcb, x0, X)
+β0 = initialize_params(mcb, t, e, X)
+βmat = compute_params(mcb, X, β0)
+tb = transform_params(mcb, βmat)
 
 
 
