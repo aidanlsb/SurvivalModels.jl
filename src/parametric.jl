@@ -99,7 +99,9 @@ Compute negative log likelihood for a single observation and set of parameters.
 """
 function neg_log_likelihood_one(estimator::AbstractParametricEstimator, ts::T, e::Bool, transformed_params::Vector) where T <: Real
     lh = e * log_hazard(estimator, ts, transformed_params)
+    # println(lh)
     ch = cumulative_hazard(estimator, ts, transformed_params)
+    # println(ch)
     return -1.0 * (lh - ch)
 end
 
@@ -108,9 +110,11 @@ Compute NLL for all observations, assuming one set of parameters (i.e., not the 
 """
 function neg_log_likelihood_inner(estimator::AbstractParametricEstimator, ts::Vector{T}, e::Vector{Bool}, transformed_params::Vector) where T <: Real
     ll = 0.0
+    # ll = Float64[]
     N = length(ts)
     for i in 1:N
         ll += neg_log_likelihood_one(estimator, ts[i], e[i], transformed_params)
+        # push!(ll, lli)
     end
     return ll
 end
@@ -120,9 +124,11 @@ Compute NLL for all observations, assuming individual params for each obs (i.e.,
 """
 function neg_log_likelihood_inner(estimator::AbstractParametricEstimator, ts::Vector{T}, e::Vector{Bool}, transformed_params::Matrix) where T <: Real
     ll = 0.0
+    # ll = Float64[]
     N = length(ts)
     for i in 1:N
         ll += neg_log_likelihood_one(estimator, ts[i], e[i], transformed_params[i, :])
+        # push!(ll, lli)
     end
     return ll
 end

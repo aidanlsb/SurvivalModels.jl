@@ -30,7 +30,7 @@ function sim_mixture_cure_reg(β_c, β_α, β_θ; N=10_000, thresh=1.0)
     x = rand(Normal(), N)
     observed = Array{Bool}(undef, N)
     α = exp.(0.5 .+ x .* β_α)
-    θ = exp.(0.75 .+ x .* β_θ)
+    θ = exp.(1.75 .+ x .* β_θ)
     c_ = logistic.(2.0 .+ x .* β_c)
     for i in 1:N
         c = rand(Bernoulli(c_[i]))
@@ -45,7 +45,7 @@ function sim_mixture_cure_reg(β_c, β_α, β_θ; N=10_000, thresh=1.0)
                 t[i] = thresh
             else 
                 observed[i] = true
-                t[i] = d
+                t[i] = d > 1e-25 ? d : d + 1e-25
             end
         end
     end
@@ -59,18 +59,45 @@ mcb = MixtureCureEstimator(WeibullEstimator())
 mc = SurvivalModels.fit(mcb, df.t, df.observed)
 
 # df_reg = sim_mixture_cure_reg([-0.25], [0.9], [0.45]; N=100_000, thresh=10)
-df_reg = sim_mixture_cure_reg([2.3], [1.5], [-0.4]; N=100_000, thresh=10)
+df_reg = sim_mixture_cure_reg([2.3], [1.5], [0.4]; N=100_000, thresh=10)
 t = df_reg.t
 e = df_reg.observed
 println(mean(e))
 X = Matrix(df_reg[:, [:x]])
 mcr = SurvivalModels.fit(mcb, t, e, X)
+println(mcr)
 
-import SurvivalModels: initialize_params, compute_params, transform_params
+import SurvivalModels: initialize_params, compute_params, transform_params, neg_log_likelihood, neg_log_likelihood_inner, log_hazard, cumulative_hazard, neg_log_likelihood_one
 
 β0 = initialize_params(mcb, t, e, X)
 βmat = compute_params(mcb, X, β0)
 tb = transform_params(mcb, βmat)
+
+tmp = neg_log_likelihood(mcb, t, e, X, β0)
+tmp2 = neg_log_likelihood_inner(mcb, t, e, tb)
+
+
+idx = 52300:52302
+tmp_val = tmp2[idx]
+
+tmp3 = neg_log_likelihood_inner(mcb, t[idx], e[idx], tb[idx, :])
+println(tmp3)
+idx2 = 52301
+tmp4 = neg_log_likelihood_one(mcb, t[idx2], e[idx2], tb[idx2, :])
+
+
+println(X[idx, :])
+βmat[idx, :]
+
+idx = 1
+lh = e[idx] * log_hazard(mcb, t[idx], tb[idx, :])
+ch = cumulative_hazard(mcb, t[idx], tb[idx, :])
+(lh + ch)
+
+
+
+
+
 
 
 
