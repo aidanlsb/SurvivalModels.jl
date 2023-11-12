@@ -66,8 +66,9 @@ println(mean(e))
 X = Matrix(df_reg[:, [:x]])
 mcr = SurvivalModels.fit(mcb, t, e, X)
 println(mcr)
+confint(mcr, t, e, X)
 
-ci = confint(mcb, t, e, X)
+# ci = confint(mcb, t, e, X)
 
 # import SurvivalModels: neg_log_likelihood, cumulative_hazard, log_hazard
 ci = confint(mc, df.t, df.observed)

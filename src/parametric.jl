@@ -77,7 +77,6 @@ end
 
 function survival_function(estimator::AbstractParametricEstimator, ts, params)
     # this can be zero, which causes numerical errors when we take the log so add eps
-    # TODO: maybe can remove `safe`?
     return safe_exp.(-cumulative_hazard(estimator, ts, params)) + 1e-25
 end
 
@@ -99,9 +98,7 @@ Compute negative log likelihood for a single observation and set of parameters.
 """
 function neg_log_likelihood_one(estimator::AbstractParametricEstimator, ts::T, e::Bool, transformed_params::Vector) where T <: Real
     lh = e * log_hazard(estimator, ts, transformed_params)
-    # println(lh)
     ch = cumulative_hazard(estimator, ts, transformed_params)
-    # println(ch)
     return -1.0 * (lh - ch)
 end
 
@@ -110,11 +107,9 @@ Compute NLL for all observations, assuming one set of parameters (i.e., not the 
 """
 function neg_log_likelihood_inner(estimator::AbstractParametricEstimator, ts::Vector{T}, e::Vector{Bool}, transformed_params::Vector) where T <: Real
     ll = 0.0
-    # ll = Float64[]
     N = length(ts)
     for i in 1:N
         ll += neg_log_likelihood_one(estimator, ts[i], e[i], transformed_params)
-        # push!(ll, lli)
     end
     return ll
 end
@@ -124,11 +119,9 @@ Compute NLL for all observations, assuming individual params for each obs (i.e.,
 """
 function neg_log_likelihood_inner(estimator::AbstractParametricEstimator, ts::Vector{T}, e::Vector{Bool}, transformed_params::Matrix) where T <: Real
     ll = 0.0
-    # ll = Float64[]
     N = length(ts)
     for i in 1:N
         ll += neg_log_likelihood_one(estimator, ts[i], e[i], transformed_params[i, :])
-        # push!(ll, lli)
     end
     return ll
 end
@@ -180,10 +173,11 @@ function initialize_params(estimator::WeibullEstimator, ts, e)
     return x0
 end
 
-function initialize_params(estimator::WeibullEstimator, ts, e, X)
-    num_predictors = size(X, 2)
-    num_parameters = num_params(estimator)
-end
+# TODO: finish this - init for weibull regression
+# function initialize_params(estimator::WeibullEstimator, ts, e, X)
+#     num_predictors = size(X, 2)
+#     num_parameters = num_params(estimator)
+# end
 
 function initialize_params(estimator::MixtureCureEstimator, ts, e)
     x0_base = initialize_params(estimator.base_estimator, ts, e)
@@ -235,6 +229,18 @@ function confint(fitted::FittedParametricEstimator, ts, e; confidence_level=0.95
 end
 
 function confint(fitted::FittedParametricEstimator, ts, e, X; confidence_level=0.95)
+    βhat = get_params(fitted) 
+    estimator = estimator_from_fitted(fitted)
+    nll(β) = neg_log_likelihood(estimator, ts, e, X, β)
+    H = ForwardDiff.hessian(x -> nll(x), βhat)
+    variance = inv(H)
+    se = sqrt.(diag(variance))
+    α = 1 - confidence_level
+    z = quantile(Normal(), 1 - α/2)
+    ci_width = se .* z
+    lower = βhat .- ci_width
+    upper = βhat .+ ci_width
+    return (lower=lower, upper=upper)
 end
 
 
