@@ -169,7 +169,7 @@ end
 function param_optimization(estimator::AbstractParametricEstimator, obj, x0)
     func = TwiceDifferentiable(obj, x0, autodiff=:forward)
     res = optimize(func, x0, LBFGS())
-    println(res)
+    # println(res)
     return Optim.minimizer(res)
 end
 
@@ -221,9 +221,7 @@ get_params(estimator::FittedParametricEstimator) = estimator.params
 
 function confint(fitted::FittedParametricEstimator, ts, e; confidence_level=0.95)
     β = get_params(fitted) 
-    # println(β)
     estimator = estimator_from_fitted(fitted)
-    # linker = get_linker(estimator)
     nll(x) = neg_log_likelihood(estimator, ts, e, x)
     H = ForwardDiff.hessian(x -> nll(x), β)
     variance = inv(H)
@@ -234,6 +232,9 @@ function confint(fitted::FittedParametricEstimator, ts, e; confidence_level=0.95
     lower = β .- ci_width
     upper = β .+ ci_width
     return (lower=lower, upper=upper)
+end
+
+function confint(fitted::FittedParametricEstimator, ts, e, X; confidence_level=0.95)
 end
 
 
