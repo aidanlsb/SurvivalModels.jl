@@ -12,6 +12,7 @@ struct FittedParametricEstimator{T} <: AbstractFittedParametricEstimator where T
     estimator::AbstractParametricEstimator
     params::Array{T}
     stderrors::Array{T}
+    optim_result
 end
 
 
@@ -200,8 +201,7 @@ end
 function param_optimization(estimator::AbstractParametricEstimator, obj, x0)
     func = TwiceDifferentiable(obj, x0, autodiff=:forward)
     res = optimize(func, x0, LBFGS())
-    # println(res)
-    return Optim.minimizer(res)
+    return res
 end
 
 function calculate_stderrors(nll, β)
@@ -214,9 +214,10 @@ end
 function fit(estimator::AbstractParametricEstimator, ts, e)
     nll(β) = neg_log_likelihood(estimator, ts, e, β)
     β0 = initialize_params(estimator, ts, e)
-    β = param_optimization(estimator, nll, β0)
+    res = param_optimization(estimator, nll, β0)
+    β = Optim.minimizer(res)
     stderrors = calculate_stderrors(nll, β)
-    return FittedParametricEstimator(estimator, β, stderrors)
+    return FittedParametricEstimator(estimator, β, stderrors, res)
 end
 
 function fit(estimator::AbstractParametricEstimator, ts, e, X; add_intercept=true)
@@ -228,9 +229,10 @@ function fit(estimator::AbstractParametricEstimator, ts, e, X; add_intercept=tru
 
     nll(β) = neg_log_likelihood(estimator, ts, e, X_input, β)
     β0 = initialize_params(estimator, ts, e, X_input)
-    β = param_optimization(estimator, nll, β0)
+    res = param_optimization(estimator, nll, β0)
+    β = Optim.minimizer(res)
     stderrors = calculate_stderrors(nll, β)
-    return FittedParametricEstimator(estimator, β, stderrors)
+    return FittedParametricEstimator(estimator, β, stderrors, res)
 end
 
 coef(estimator::FittedParametricEstimator) = estimator.params
