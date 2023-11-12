@@ -11,6 +11,7 @@ end
 struct FittedParametricEstimator{T} <: AbstractFittedParametricEstimator where T <: Real
     estimator::AbstractParametricEstimator
     params::Array{T}
+    stderrors::Array{T}
 end
 
 
@@ -203,13 +204,20 @@ function param_optimization(estimator::AbstractParametricEstimator, obj, x0)
     return Optim.minimizer(res)
 end
 
-function fit(estimator::AbstractParametricEstimator, ts, e)
-    obj(β) = neg_log_likelihood(estimator, ts, e, β)
-    β0 = initialize_params(estimator, ts, e)
-    β = param_optimization(estimator, obj, β0)
-    return FittedParametricEstimator(estimator, β)
+function calculate_stderrors(nll, β)
+    H = ForwardDiff.hessian(x -> nll(x), β)
+    variance = inv(H)
+    ses = sqrt.(diag(variance))
+    return ses
 end
 
+function fit(estimator::AbstractParametricEstimator, ts, e)
+    nll(β) = neg_log_likelihood(estimator, ts, e, β)
+    β0 = initialize_params(estimator, ts, e)
+    β = param_optimization(estimator, nll, β0)
+    stderrors = calculate_stderrors(nll, β)
+    return FittedParametricEstimator(estimator, β, stderrors)
+end
 
 function fit(estimator::AbstractParametricEstimator, ts, e, X; add_intercept=true)
     if add_intercept
@@ -218,46 +226,24 @@ function fit(estimator::AbstractParametricEstimator, ts, e, X; add_intercept=tru
         X_input = X
     end
 
-    obj(β) = neg_log_likelihood(estimator, ts, e, X_input, β)
+    nll(β) = neg_log_likelihood(estimator, ts, e, X_input, β)
     β0 = initialize_params(estimator, ts, e, X_input)
-    β = param_optimization(estimator, obj, β0)
-    return FittedParametricEstimator(estimator, β)
+    β = param_optimization(estimator, nll, β0)
+    stderrors = calculate_stderrors(nll, β)
+    return FittedParametricEstimator(estimator, β, stderrors)
 end
 
-get_params(estimator::FittedParametricEstimator) = estimator.params
+coef(estimator::FittedParametricEstimator) = estimator.params
+stderror(estimator::FittedParametricEstimator) = estimator.stderrors
 
-function confint(fitted::FittedParametricEstimator, ts, e; confidence_level=0.95)
-    β = get_params(fitted) 
-    estimator = estimator_from_fitted(fitted)
-    nll(x) = neg_log_likelihood(estimator, ts, e, x)
-    H = ForwardDiff.hessian(x -> nll(x), β)
-    variance = inv(H)
-    se = sqrt.(diag(variance))
+function confint(fitted::FittedParametricEstimator; confidence_level=0.95)
+    β = coef(fitted)
+    se = stderror(fitted)
     α = 1 - confidence_level
     z = quantile(Normal(), 1 - α/2)
     ci_width = se .* z
     lower = β .- ci_width
     upper = β .+ ci_width
-    return (lower=lower, upper=upper)
-end
-
-function confint(fitted::FittedParametricEstimator, ts, e, X; confidence_level=0.95, add_intercept=true)
-    if add_intercept
-        X_input = create_intercept(X)
-    else
-        X_input = X
-    end
-    βhat = get_params(fitted) 
-    estimator = estimator_from_fitted(fitted)
-    nll(β) = neg_log_likelihood(estimator, ts, e, X_input, β)
-    H = ForwardDiff.hessian(x -> nll(x), βhat)
-    variance = inv(H)
-    se = sqrt.(diag(variance))
-    α = 1 - confidence_level
-    z = quantile(Normal(), 1 - α/2)
-    ci_width = se .* z
-    lower = βhat .- ci_width
-    upper = βhat .+ ci_width
     return (lower=lower, upper=upper)
 end
 
