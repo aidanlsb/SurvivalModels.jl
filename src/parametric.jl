@@ -127,12 +127,13 @@ end
 
 function initialize_params(estimator::MixtureCureEstimator, ts, e, X)
     num_params_base = num_params(estimator.base_estimator)
+    num_predictors = size(X, 2)
     β0_base = initialize_params(estimator.base_estimator, ts, e, X)
     intercepts_base = β0_base[1:num_params_base]
     coefs_base = β0_base[num_params_base+1:end]
-    intercept_c = logit(mean(e))
-    coef_c = 0
-    return vcat(intercept_c, intercepts_base, coef_c, coefs_base)
+    β0_c = zeros(num_predictors)
+    β0_c[1] = logit(mean(e))
+    return vcat(β0_c[1], intercepts_base, β0_c[2:end], coefs_base)
 end
 
 
@@ -227,8 +228,11 @@ function fit(estimator::AbstractParametricEstimator, ts, e, X; add_intercept=tru
         X_input = X
     end
 
+    print(size(X_input))
+
     nll(β) = neg_log_likelihood(estimator, ts, e, X_input, β)
     β0 = initialize_params(estimator, ts, e, X_input)
+    println(length(β0))
     res = param_optimization(estimator, nll, β0)
     β = Optim.minimizer(res)
     stderrors = calculate_stderrors(nll, β)
