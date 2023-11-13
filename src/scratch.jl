@@ -53,16 +53,16 @@ function sim_mixture_cure_reg(β_c, β_α, β_θ; N=10_000, thresh=1.0)
     return df
 end
 
-# df = sim_mixture_cure(Weibull(0.40, 130945), 0.96; N=100_000, thresh=30_000)
-# mcb = MixtureCureEstimator(WeibullEstimator())
-# mc = SurvivalModels.fit(mcb, df.t, df.observed)
+df = sim_mixture_cure(Weibull(0.40, 130945), 0.96; N=100_000, thresh=30_000)
+mcb = MixtureCureEstimator(WeibullEstimator())
+mc = SurvivalModels.fit(mcb, df.t, df.observed)
 
-# df_reg = sim_mixture_cure_reg([2.3], [1.5], [0.4]; N=100_000, thresh=10)
-# t = df_reg.t
-# e = df_reg.observed
-# println(mean(e))
-# X = Matrix(df_reg[:, [:x]])
-# mcr = SurvivalModels.fit(mcb, t, e, X)
+df_reg = sim_mixture_cure_reg([2.3], [1.5], [0.4]; N=100_000, thresh=10)
+t = df_reg.t
+e = df_reg.observed
+println(mean(e))
+X = Matrix(df_reg[:, [:x]])
+mcr = SurvivalModels.fit(mcb, t, e, X)
 # println(mcr)
 # confint(mcr)
 

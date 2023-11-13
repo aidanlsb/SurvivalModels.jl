@@ -12,6 +12,7 @@ struct FittedParametricEstimator{T} <: AbstractFittedParametricEstimator where T
     estimator::AbstractParametricEstimator
     params::Array{T}
     stderrors::Array{T}
+    param_names::Array{String}
     optim_result
 end
 
@@ -212,13 +213,29 @@ function calculate_stderrors(nll, β)
     return ses
 end
 
+param_names(estimator::WeibullEstimator) = ["α", "θ"]
+param_names(estimator::MixtureCureEstimator) = vcat("c", param_names(estimator.base_estimator))
+
+function param_names(estimator::AbstractParametricEstimator, X)
+    num_predictors = size(X, 2)
+    param_names_base = param_names(estimator)
+    param_names_all = String[]
+    for i in 1:num_predictors
+        for p in param_names_base
+            push!(param_names_all, "$(p)_$(i)")
+        end
+    end
+    return param_names_all
+end
+
 function fit(estimator::AbstractParametricEstimator, ts, e)
     nll(β) = neg_log_likelihood(estimator, ts, e, β)
     β0 = initialize_params(estimator, ts, e)
     res = param_optimization(estimator, nll, β0)
     β = Optim.minimizer(res)
     stderrors = calculate_stderrors(nll, β)
-    return FittedParametricEstimator(estimator, β, stderrors, res)
+    names = param_names(estimator)
+    return FittedParametricEstimator(estimator, β, stderrors, names, res)
 end
 
 function fit(estimator::AbstractParametricEstimator, ts, e, X; add_intercept=true)
@@ -228,15 +245,14 @@ function fit(estimator::AbstractParametricEstimator, ts, e, X; add_intercept=tru
         X_input = X
     end
 
-    print(size(X_input))
-
     nll(β) = neg_log_likelihood(estimator, ts, e, X_input, β)
     β0 = initialize_params(estimator, ts, e, X_input)
     println(length(β0))
     res = param_optimization(estimator, nll, β0)
     β = Optim.minimizer(res)
     stderrors = calculate_stderrors(nll, β)
-    return FittedParametricEstimator(estimator, β, stderrors, res)
+    names = param_names(estimator, X_input)
+    return FittedParametricEstimator(estimator, β, stderrors, names, res)
 end
 
 coef(estimator::FittedParametricEstimator) = estimator.params
@@ -252,5 +268,3 @@ function confint(fitted::FittedParametricEstimator; confidence_level=0.95)
     upper = β .+ ci_width
     return (lower=lower, upper=upper)
 end
-
-
