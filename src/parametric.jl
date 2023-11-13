@@ -37,6 +37,7 @@ param_links(estimator::ExponentialEstimator) = exp_links(estimator)
 param_links(estimator::MixtureCureEstimator) = vcat([logistic], param_links(estimator.base_estimator))
 
 
+
 function log_hazard(estimator::WeibullEstimator, ts, params)
     α = params[1]
     θ = params[2]
@@ -247,7 +248,6 @@ function fit(estimator::AbstractParametricEstimator, ts, e, X; add_intercept=tru
 
     nll(β) = neg_log_likelihood(estimator, ts, e, X_input, β)
     β0 = initialize_params(estimator, ts, e, X_input)
-    println(length(β0))
     res = param_optimization(estimator, nll, β0)
     β = Optim.minimizer(res)
     stderrors = calculate_stderrors(nll, β)
@@ -257,6 +257,9 @@ end
 
 coef(estimator::FittedParametricEstimator) = estimator.params
 stderror(estimator::FittedParametricEstimator) = estimator.stderrors
+param_names(fitted::FittedParametricEstimator) = fitted.param_names
+
+
 
 function confint(fitted::FittedParametricEstimator; confidence_level=0.95)
     β = coef(fitted)
@@ -267,4 +270,11 @@ function confint(fitted::FittedParametricEstimator; confidence_level=0.95)
     lower = β .- ci_width
     upper = β .+ ci_width
     return (lower=lower, upper=upper)
+end
+
+function results_summary(fitted::FittedParametricEstimator; confidence_level=0.95)
+    coefs = coef(fitted)
+    cis = confint(fitted)
+    names = param_names(fitted)
+    return DataFrame(parameter=names, coef=coefs, ci_lower=cis.lower, ci_upper=cis.upper) 
 end
