@@ -6,9 +6,10 @@ struct WeibullEstimator <: AbstractParametricEstimator end
 struct FittedParametricEstimator <: AbstractParametricEstimator
     estimator::AbstractParametricEstimator
     params::Array{Float64}
-    stderrors::Array{Float64}
+    stderrors::Union{Array{Float64}, Nothing}
     param_names::Array{String}
     optim_result::Optim.MultivariateOptimizationResults
+    fitted_with_covariates::Bool
 end
 
 
@@ -17,16 +18,16 @@ struct MixtureCureEstimator{T} <: AbstractParametricEstimator where T <: Abstrac
     base_estimator::T
 end
 
-struct RidgePenaltyEstimator{T} <: AbstractParametricEstimator where T <: AbstractParametricEstimator
-    estimator::T
-    λ::Float64
-end
+# struct RidgePenaltyEstimator{T} <: AbstractParametricEstimator where T <: AbstractParametricEstimator
+#     estimator::T
+#     λ::Float64
+# end
 
 # Parameter counts, to use in optimization initialization
 num_params(estimator::WeibullEstimator) = 2
 num_params(estimator::ExponentialEstimator) = 1
 num_params(estimator::MixtureCureEstimator) = num_params(estimator.base_estimator) + 1
-num_params(estimator::RidgePenaltyEstimator) = num_params(estimator.estimator)
+# num_params(estimator::RidgePenaltyEstimator) = num_params(estimator.estimator)
 
 function log_hazard(estimator::WeibullEstimator, ts, params)
     α = params[1]
@@ -84,8 +85,8 @@ function survival_function(estimator::AbstractParametricEstimator, ts, params)
 end
 
 function link_to_params(estimator::Union{ExponentialEstimator, WeibullEstimator}, params::Vector{T}) where T <: Real
-    # return exp.(params)
-    return log1pexp.(params)
+    return exp.(params)
+    # return log1pexp.(params)
 end
 
 function link_to_params(estimator::MixtureCureEstimator, params::Vector{T}) where T <: Real
@@ -101,13 +102,13 @@ function link_to_params(estimator::AbstractParametricEstimator, params::Matrix{T
     return output
 end
 
-function link_to_params(estimator::RidgePenaltyEstimator, params::Vector{T}) where T <: Real 
-    return link_to_params(estimator.estimator, params)
-end
+# function link_to_params(estimator::RidgePenaltyEstimator, params::Vector{T}) where T <: Real 
+#     return link_to_params(estimator.estimator, params)
+# end
 
-function link_to_params(estimator::RidgePenaltyEstimator, params::Matrix{T}) where T <: Real 
-    return link_to_params(estimator.estimator, params)
-end
+# function link_to_params(estimator::RidgePenaltyEstimator, params::Matrix{T}) where T <: Real 
+#     return link_to_params(estimator.estimator, params)
+# end
 
 
 function create_intercept(X)
@@ -118,8 +119,8 @@ end
 
 function initialize_params(estimator::Union{ExponentialEstimator, WeibullEstimator}, ts, e)
     β0 = zeros(Float64, num_params(estimator))
-    # β0[end] = log(mean(ts))
-    β0[end] = logexpm1(mean(ts))
+    β0[end] = log(mean(ts))
+    # β0[end] = logexpm1(mean(ts))
     return β0
 end
 
@@ -131,8 +132,8 @@ function initialize_params(estimator::Union{ExponentialEstimator, WeibullEstimat
     # first coefs are the intercepts for each parameter
     intercepts = @view β0[1:num_parameters]
     # for the weibull, initialize the theta parameter to the log mean of durations
-    # intercepts[end] = log(mean(ts))
-    intercepts[end] = logexpm1(mean(ts))
+    intercepts[end] = log(mean(ts))
+    # intercepts[end] = logexpm1(mean(ts))
     return β0
 end
 
@@ -153,9 +154,9 @@ function initialize_params(estimator::MixtureCureEstimator, ts, e, X)
     return vcat(β0_c[1], intercepts_base, β0_c[2:end], coefs_base)
 end
 
-function initialize_params(estimator::RidgePenaltyEstimator, ts, e, X)
-    return initialize_params(estimator.estimator, ts, e, X)
-end
+# function initialize_params(estimator::RidgePenaltyEstimator, ts, e, X)
+#     return initialize_params(estimator.estimator, ts, e, X)
+# end
 
 
 """
@@ -229,16 +230,17 @@ function neg_log_likelihood(estimator::AbstractParametricEstimator, ts, e, X, pa
     return neg_log_likelihood_inner(estimator, ts, e, transformed_params)
 end
 
-function neg_log_likelihood(estimator::RidgePenaltyEstimator, ts, e, X, params)
-    num_parameters = num_params(estimator.estimator)
-    Xb = compute_params(estimator.estimator, X, params)
-    params_to_penalize = params[(num_parameters+1):end]
-    penalty = sum(params_to_penalize .^ 2) * estimator.λ / 2
-    transformed_params = transform_params(estimator.estimator, Xb)
-    nll = neg_log_likelihood_inner(estimator.estimator, ts, e, transformed_params)
-    N = size(X, 1)
-    return nll / N + penalty
-end
+# function neg_log_likelihood(estimator::RidgePenaltyEstimator, ts, e, X, params)
+#     num_parameters = num_params(estimator.estimator)
+#     # Xb = compute_params(estimator.estimator, X, params)
+#     params_to_penalize = params[(num_parameters+1):end]
+#     penalty = sum(params_to_penalize.^2) 
+#     # transformed_params = transform_params(estimator.estimator, Xb)
+#     # nll = neg_log_likelihood_inner(estimator.estimator, ts, e, transformed_params)
+#     nll = neg_log_likelihood(estimator.estimator, ts, e, X, params)
+#     N = size(X, 1)
+#     return nll / N + penalty * estimator.λ / 2
+# end
 
 function param_optimization(estimator::AbstractParametricEstimator, obj, x0)
     func = TwiceDifferentiable(obj, x0, autodiff=:forward)
@@ -255,7 +257,7 @@ end
 
 param_names(estimator::WeibullEstimator) = ["α", "θ"]
 param_names(estimator::MixtureCureEstimator) = vcat("c", param_names(estimator.base_estimator))
-param_names(estimator::RidgePenaltyEstimator) = param_names(estimator.estimator)
+# param_names(estimator::RidgePenaltyEstimator) = param_names(estimator.estimator)
 
 function param_names(estimator::AbstractParametricEstimator, X::Matrix{T}) where T <: Real
     num_predictors = size(X, 2)
@@ -276,7 +278,7 @@ function fit(estimator::AbstractParametricEstimator, ts, e)
     β = Optim.minimizer(res)
     stderrors = calculate_stderrors(nll, β)
     names = param_names(estimator)
-    return FittedParametricEstimator(estimator, β, stderrors, names, res)
+    return FittedParametricEstimator(estimator, β, stderrors, names, res, false)
 end
 
 function fit(estimator::AbstractParametricEstimator, ts, e, X; add_intercept=true)
@@ -292,8 +294,23 @@ function fit(estimator::AbstractParametricEstimator, ts, e, X; add_intercept=tru
     β = Optim.minimizer(res)
     stderrors = calculate_stderrors(nll, β)
     names = param_names(estimator, X_input)
-    return FittedParametricEstimator(estimator, β, stderrors, names, res)
+    return FittedParametricEstimator(estimator, β, stderrors, names, res, true)
 end
+
+# function fit(estimator::RidgePenaltyEstimator, ts, e, X; add_intercept=true)
+#     if add_intercept
+#         X_input = create_intercept(X)
+#     else
+#         X_input = X
+#     end
+
+#     nll(β) = neg_log_likelihood(estimator, ts, e, X_input, β)
+#     β0 = initialize_params(estimator, ts, e, X_input)
+#     res = param_optimization(estimator, nll, β0)
+#     β = Optim.minimizer(res)
+#     names = param_names(estimator, X_input)
+#     return FittedParametricEstimator(estimator, β, nothing, names, res)
+# end
 
 coef(estimator::FittedParametricEstimator) = estimator.params
 stderror(estimator::FittedParametricEstimator) = estimator.stderrors
@@ -319,6 +336,14 @@ function results_summary(fitted::FittedParametricEstimator; confidence_level=0.9
     return DataFrame(parameter=names, coef=coefs, ci_lower=cis.lower, ci_upper=cis.upper) 
 end
 
+function check_fit_type(fitted::FittedParametricEstimator, needs_covariates)
+    if needs_covariates & !fitted.fitted_with_covariates
+        throw(ArgumentError("This estimator was not fit with coveriates. Call `fit` only on a vector of durations to obtain predictions, or refit a model with covariates."))
+    elseif !needs_covariates & fitted.fitted_with_covariates
+        throw(ArgumentError("This estimator was fit with covariates. Pass a matrix of covariate values in `fit` to obtain predictions, or refit a model without covariates."))
+    end
+end
+
 # TODO: rename this
 function fitted_params(fitted::FittedParametricEstimator, X; add_intercept=true)
     if add_intercept
@@ -332,14 +357,33 @@ function fitted_params(fitted::FittedParametricEstimator, X; add_intercept=true)
     return params
 end
 
+
+function fitted_params(fitted::FittedParametricEstimator)
+    return coef(fitted)
+end
+
 # add non-regression method
 function predict_cumulative_hazard(fitted::FittedParametricEstimator, ts, X; add_intercept=true)
+    check_fit_type(fitted, true)
     params = fitted_params(fitted, X; add_intercept=add_intercept)
     transformed_params = transform_params(fitted.estimator, params)
-    chs = Float64[]
-    for (i, t) in enumerate(ts) 
-        ch = cumulative_hazard(fitted.estimator, t, transformed_params[i, :])
-        push!(chs, ch)
+    nt = length(ts)
+    print(nt)
+    chs = Array{Float64}(undef, nt)
+    for i in 1:nt
+        chs[i] = cumulative_hazard(fitted.estimator, ts[i], transformed_params[i, :])
+    end
+    return chs
+end
+
+function predict_cumulative_hazard(fitted::FittedParametricEstimator, ts)
+    check_fit_type(fitted, false)
+    params = fitted_params(fitted)
+    transformed_params = transform_params(fitted.estimator, params)
+    nt = length(ts)
+    chs = Array{Float64}(undef, nt)
+    for i in 1:nt
+        chs[i] = cumulative_hazard(fitted.estimator, ts[i], transformed_params)
     end
     return chs
 end

@@ -29,8 +29,8 @@ function sim_mixture_cure_reg(β_c, β_α, β_θ; N=10_000, thresh=1.0)
     x = rand(Normal(), (N, 2))
     observed = Array{Bool}(undef, N)
     # α = exp.(0.5 .+ x .* β_α)
-    α = log1pexp.(0.5 .+ x[:, 1] .* β_α .+ β_α*0.5 .* x[:, 2])
-    θ = log1pexp.(1.75 .+ x[:, 1] .* β_θ .+ β_θ * 0.5 .* x[:, 2])
+    α = exp.(0.5 .+ x[:, 1] .* β_α .+ β_α*0.5 .* x[:, 2])
+    θ = exp.(1.75 .+ x[:, 1] .* β_θ .+ β_θ * 0.5 .* x[:, 2])
     c_ = logistic.(2.0 .+ x[:, 1] .* β_c .+ β_c * 0.5 .* x[:, 2])
     for i in 1:N
         c = rand(Bernoulli(c_[i]))
@@ -54,24 +54,21 @@ function sim_mixture_cure_reg(β_c, β_α, β_θ; N=10_000, thresh=1.0)
     return df
 end
 
-df = sim_mixture_cure(Weibull(0.40, 130945), 0.96; N=100_000, thresh=30_000)
+df = sim_mixture_cure(Weibull(0.40, 130945), 0.80; N=25_000, thresh=30_000)
 mcb = MixtureCureEstimator(WeibullEstimator())
 mc = SurvivalModels.fit(mcb, df.t, df.observed)
+p = predict_cumulative_hazard(mc, df.t)
 
-df_reg = sim_mixture_cure_reg([2.3], [1.5], [0.4]; N=100_000, thresh=10)
+df_reg = sim_mixture_cure_reg([2.3], [1.5], [0.4]; N=25_000, thresh=10)
 t = df_reg.t
 e = df_reg.observed
 X = Matrix(df_reg[:, [:x, :x2]])
 
+mcr = SurvivalModels.fit(mcb, t, e, X)
+results_summary(mcr)
 
-mcb_ridge = RidgePenaltyEstimator(mcb, 0.0)
-res_ridge = SurvivalModels.fit(mcb_ridge, t, e, X)
-res_normal = SurvivalModels.fit(mcb, t, e, X)
-
-@benchmark SurvivalModels.fit(mcb, t, e, X)
-df_summary = results_summary(res_normal)
-preds = predict_cumulative_hazard(mcr, t, X)
-println(sum(preds))
+preg = predict_cumulative_hazard(mcr, t, X)
+println(sum(preg))
 println(sum(e))
 
 
