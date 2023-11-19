@@ -71,6 +71,100 @@ preg = predict_cumulative_hazard(mcr, t, X)
 println(sum(preg))
 println(sum(e))
 
+# delta method CI scratch
+# use basic first
+function sim_ci_ch(c, α, θ)
+    df = sim_mixture_cure(Weibull(exp(α), exp(θ)), 1 - logistic(c); N=10_000, thresh=100)
+    ts = df.t
+    mcb = MixtureCureEstimator(WeibullEstimator())
+    mc = SurvivalModels.fit(mcb, ts, df.observed)
+    t = ts[1]
+    ch_actual = SurvivalModels.cumulative_hazard(mc.estimator, t, [c, α, θ])
+
+    params = mc.params
+    vcov = mc.vcov
+    ts = df.t[1]
+    func(x) = SurvivalModels.cumulative_hazard(mc.estimator, ts, x)
+    est = func(params)
+    grad = ForwardDiff.gradient(func, params)
+    var = grad' * vcov * grad
+    se = sqrt(var)
+    upper = est + 1.96 * se
+    lower = est - 1.96 * se
+    covered = lower <= ch_actual <= upper
+    return covered
+end
+
+
+
+
+N_sims = 100
+logitc = 1.0
+loga = -0.7
+logtheta = 3.0
+
+c = logistic(logitc)
+α = exp(loga)
+θ = exp(logtheta)
+
+coverage = Array{Bool}(undef, N_sims)
+actuals = Array{Float64}(undef, N_sims)
+estimates = Array{Float64}(undef, N_sims)
+lowers = Array{Float64}(undef, N_sims)
+uppers = Array{Float64}(undef, N_sims)
+# ll_est = Array{Float64}(undef, N_sims)
+
+ll = pyimport("lifelines")
+mcp = ll.MixtureCureFitter(base_fitter=ll.WeibullFitter())
+
+function chaz_raw(estimator, t, params_raw)
+    params = SurvivalModels.transform_params(estimator, params_raw)
+    return SurvivalModels.cumulative_hazard(estimator, t, params)
+end
+
+@showprogress for i in 1:N_sims
+    N = 25_000
+    df = sim_mixture_cure(Weibull(α, θ), 1 - c; N=N, thresh=100)
+    mcb = MixtureCureEstimator(WeibullEstimator())
+    mc = SurvivalModels.fit(mcb, df.t, df.observed)
+    mcp.fit(df.t, event_observed=df.observed)
+
+    teval = 1.0
+    params_raw = SurvivalModels.fitted_params(mc)
+    ch_actual = chaz_raw(mcb, teval, [logitc, loga, logtheta])
+    actuals[i] = ch_actual
+    # params = SurvivalModels.transform_params(mcb, SurvivalModels.fitted_params(mc))
+    # print(params)
+    vcov = mc.vcov
+    func(x) = chaz_raw(mc.estimator, teval, x)
+
+    try
+        est = func(params_raw)
+        estimates[i] = est
+    catch
+        println("t is $(teval)")
+        println("params are $(params)")
+    end
+    grad = ForwardDiff.gradient(func, params_raw)
+    var = grad' * vcov * grad
+    se = sqrt(var)
+    upper = est + 1.96 * se
+    lower = est - 1.96 * se
+    uppers[i] = upper
+    lowers[i] = lower
+    covered = lower <= ch_actual <= upper
+    coverage[i] = covered
+
+end
+
+df_sim = DataFrame(actuals=actuals, estimates=estimates, lower=lowers, upper=uppers, covered=coverage)
+
+print("Coverage for cumulative_hazard is: $(mean(coverage))")
+
+
+
+
+
 
 
 function compare_lifelines(df, mc)

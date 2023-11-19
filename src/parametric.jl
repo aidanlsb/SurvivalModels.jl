@@ -6,6 +6,7 @@ struct WeibullEstimator <: AbstractParametricEstimator end
 struct FittedParametricEstimator <: AbstractParametricEstimator
     estimator::AbstractParametricEstimator
     params::Array{Float64}
+    vcov::Matrix{Float64}
     stderrors::Union{Array{Float64}, Nothing}
     param_names::Array{String}
     optim_result::Optim.MultivariateOptimizationResults
@@ -248,9 +249,14 @@ function param_optimization(estimator::AbstractParametricEstimator, obj, x0)
     return res
 end
 
-function calculate_stderrors(nll, β)
+function calculate_variance(nll, β)
     H = ForwardDiff.hessian(x -> nll(x), β)
     variance = inv(H)
+    return variance
+end
+
+function calculate_stderrors(nll, β)
+    variance = calculate_variance(nll, β)
     ses = sqrt.(diag(variance))
     return ses
 end
@@ -276,9 +282,10 @@ function fit(estimator::AbstractParametricEstimator, ts, e)
     β0 = initialize_params(estimator, ts, e)
     res = param_optimization(estimator, nll, β0)
     β = Optim.minimizer(res)
+    vcov = calculate_variance(nll, β)
     stderrors = calculate_stderrors(nll, β)
     names = param_names(estimator)
-    return FittedParametricEstimator(estimator, β, stderrors, names, res, false)
+    return FittedParametricEstimator(estimator, β, vcov, stderrors, names, res, false)
 end
 
 function fit(estimator::AbstractParametricEstimator, ts, e, X; add_intercept=true)
