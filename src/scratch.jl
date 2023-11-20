@@ -24,14 +24,16 @@ function sim_mixture_cure(dist, c; N=10_000, thresh=1.0)
     return DataFrame(t=t, observed=observed)
 end
 
-function sim_mixture_cure_reg(β_c, β_α, β_θ; N=10_000, thresh=1.0)
+function sim_mixture_cure_reg(; N=50_000, thresh=20)
+
     t = Array{Float64}(undef, N)
-    x = rand(Normal(), (N, 2))
+    x = rand(N)
     observed = Array{Bool}(undef, N)
     # α = exp.(0.5 .+ x .* β_α)
-    α = exp.(0.5 .+ x[:, 1] .* β_α .+ β_α*0.5 .* x[:, 2])
-    θ = exp.(1.75 .+ x[:, 1] .* β_θ .+ β_θ * 0.5 .* x[:, 2])
-    c_ = logistic.(2.0 .+ x[:, 1] .* β_c .+ β_c * 0.5 .* x[:, 2])
+
+    α = exp.(-0.5 .+ x .* 0.1)
+    θ = exp.(1.75 .+ x .* 0.5)
+    c_ = logistic.(0.25 .+ x .* 1.0)
     for i in 1:N
         c = rand(Bernoulli(c_[i]))
         if c 
@@ -49,27 +51,32 @@ function sim_mixture_cure_reg(β_c, β_α, β_θ; N=10_000, thresh=1.0)
             end
         end
     end
-    df = DataFrame(t=t, x=x[:, 1], x2=x[:, 2], observed=observed)
-    df.intercept = ones(Float64, nrow(df))
+    df = DataFrame(t=t, x=x[:, 1], observed=observed)
     return df
 end
 
-df = sim_mixture_cure(Weibull(0.40, 130945), 0.80; N=25_000, thresh=30_000)
+df = sim_mixture_cure(Weibull(0.40, 15), 0.80; N=25_000, thresh=20)
 mcb = MixtureCureEstimator(WeibullEstimator())
 mc = SurvivalModels.fit(mcb, df.t, df.observed)
-p = predict_cumulative_hazard(mc, df.t)
+tu = sort(df, :t).t |> unique
+chb = SurvivalModels.predict_cumulative_hazard(mc, tu)
+dfchb = DataFrame(chb)
+dfchb.t = tu
+using Gadfly
+plot(dfchb, x=:t, y=:cumulative_hazard, ymin=:ci_lower, ymax=:ci_upper, Geom.line, Geom.ribbon, alpha=[0.2])
 
-df_reg = sim_mixture_cure_reg([2.3], [1.5], [0.4]; N=25_000, thresh=10)
-t = df_reg.t
+df_reg = sim_mixture_cure_reg()
+ts = df_reg.t
 e = df_reg.observed
-X = Matrix(df_reg[:, [:x, :x2]])
+X = Matrix(df_reg[:, [:x]])
 
-mcr = SurvivalModels.fit(mcb, t, e, X)
-results_summary(mcr)
+mcr = SurvivalModels.fit(mcb, ts, e, X)
 
-preg = predict_cumulative_hazard(mcr, t, X)
-println(sum(preg))
-println(sum(e))
+ch = SurvivalModels.predict_cumulative_hazard(mcr, ts, X)
+dfch = DataFrame(ch)
+describe(dfch)
+
+
 
 # delta method CI scratch
 # use basic first
@@ -98,10 +105,10 @@ end
 
 
 
-N_sims = 100
+N_sims = 1
 logitc = 1.0
 loga = -0.7
-logtheta = 3.0
+logtheta = 0.5
 
 c = logistic(logitc)
 α = exp(loga)
@@ -114,22 +121,27 @@ lowers = Array{Float64}(undef, N_sims)
 uppers = Array{Float64}(undef, N_sims)
 # ll_est = Array{Float64}(undef, N_sims)
 
-ll = pyimport("lifelines")
-mcp = ll.MixtureCureFitter(base_fitter=ll.WeibullFitter())
+# ll = pyimport("lifelines")
+# mcp = ll.MixtureCureFitter(base_fitter=ll.WeibullFitter())
 
 function chaz_raw(estimator, t, params_raw)
     params = SurvivalModels.transform_params(estimator, params_raw)
     return SurvivalModels.cumulative_hazard(estimator, t, params)
 end
 
-#TODOs: think about the log transform approach to avoid negatives
+function log_chaz_raw(estimator, t, params_raw)
+    params = SurvivalModels.transform_params(estimator, params_raw)
+    return log(SurvivalModels.cumulative_hazard(estimator, t, params))
+end
+
+#TODOs: think about the log transform approach to avoid negatives in the cumulative hazard
 # think about whether need to define more wrappers around CH etc (probably not, just deal with in CI methods)
 @showprogress for i in 1:N_sims
     N = 25_000
     df = sim_mixture_cure(Weibull(α, θ), 1 - c; N=N, thresh=100)
     mcb = MixtureCureEstimator(WeibullEstimator())
     mc = SurvivalModels.fit(mcb, df.t, df.observed)
-    mcp.fit(df.t, event_observed=df.observed)
+    # mcp.fit(df.t, event_observed=df.observed)
 
     teval = 1.0
     params_raw = SurvivalModels.fitted_params(mc)
@@ -138,20 +150,21 @@ end
     # params = SurvivalModels.transform_params(mcb, SurvivalModels.fitted_params(mc))
     # print(params)
     vcov = mc.vcov
-    func(x) = chaz_raw(mc.estimator, teval, x)
+    func(x) = log_chaz_raw(mc.estimator, teval, x)
 
-    try
-        est = func(params_raw)
-        estimates[i] = est
-    catch
-        println("t is $(teval)")
-        println("params are $(params)")
-    end
+    # try
+    est = exp(func(params_raw))
+    estimates[i] = est
+    # catch
+    # println("t is $(teval)")
+    # println("params are $(params)")
+    # end
     grad = ForwardDiff.gradient(func, params_raw)
     var = grad' * vcov * grad
     se = sqrt(var)
-    upper = est + 1.96 * se
-    lower = est - 1.96 * se
+    # changing these
+    upper = est * exp(1.96 * se)
+    lower = est * exp(-1.96 * se)
     uppers[i] = upper
     lowers[i] = lower
     covered = lower <= ch_actual <= upper
@@ -165,6 +178,17 @@ print("Coverage for cumulative_hazard is: $(mean(coverage))")
 
 
 
+
+N = 25_000
+df = sim_mixture_cure(Weibull(α, θ), 1 - c; N=N, thresh=100)
+mcb = MixtureCureEstimator(WeibullEstimator())
+mc = SurvivalModels.fit(mcb, df.t, df.observed)
+tpred = sort(df, :t).t |> unique
+ch = DataFrame(predict_cumulative_hazard(mc, tpred))
+ch.t = tpred
+
+using Gadfly
+plot(ch, x=:t, y=:cumulative_hazard, ymin=:ci_lower, ymax=:ci_upper, Geom.line, Geom.ribbon, alpha=[0.2])
 
 
 

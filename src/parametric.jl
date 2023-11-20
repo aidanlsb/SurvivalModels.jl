@@ -54,6 +54,11 @@ function cumulative_hazard(estimator::ExponentialEstimator, ts, params)
     return ts / θ
 end
 
+function survival_function(estimator::AbstractParametricEstimator, ts, params)
+    # this can become zero, which causes numerical errors when we take the log so add eps
+    return safe_exp.(-cumulative_hazard(estimator, ts, params)) + 1e-25
+end
+
 # Mixture Cure
 function log_hazard(estimator::MixtureCureEstimator, ts, params)
     c = params[1]
@@ -80,10 +85,6 @@ end
 #     return cumulative_hazard(estimator.estimator, ts, params)
 # end
 
-function survival_function(estimator::AbstractParametricEstimator, ts, params)
-    # this can become zero, which causes numerical errors when we take the log so add eps
-    return safe_exp.(-cumulative_hazard(estimator, ts, params)) + 1e-25
-end
 
 function link_to_params(estimator::Union{ExponentialEstimator, WeibullEstimator}, params::Vector{T}) where T <: Real
     return exp.(params)
@@ -103,13 +104,6 @@ function link_to_params(estimator::AbstractParametricEstimator, params::Matrix{T
     return output
 end
 
-# function link_to_params(estimator::RidgePenaltyEstimator, params::Vector{T}) where T <: Real 
-#     return link_to_params(estimator.estimator, params)
-# end
-
-# function link_to_params(estimator::RidgePenaltyEstimator, params::Matrix{T}) where T <: Real 
-#     return link_to_params(estimator.estimator, params)
-# end
 
 
 function create_intercept(X)
@@ -155,10 +149,24 @@ function initialize_params(estimator::MixtureCureEstimator, ts, e, X)
     return vcat(β0_c[1], intercepts_base, β0_c[2:end], coefs_base)
 end
 
-# function initialize_params(estimator::RidgePenaltyEstimator, ts, e, X)
-#     return initialize_params(estimator.estimator, ts, e, X)
-# end
+""" Given a vector of initialized params and X, deal with the shapes and \beta in matrix form."""
+function reshape_params(estimator::AbstractParametricEstimator, X, β)
+    num_parameters = num_params(estimator)
+    num_predictors = size(X, 2)
+    return transpose(reshape(β, num_parameters, num_predictors))
+end
 
+""" Given a vector of coefficients and covariates, output the linked parameters."""
+function coefs_to_params(estimator::AbstractParametricEstimator, X, coefs)
+    β = reshape_params(estimator, X, coefs)
+    Xb = X * β
+    return link_to_params(estimator, Xb)
+end
+
+""" In the non-regression case, just apply the link functions."""
+function coefs_to_params(estimator::AbstractParametricEstimator, coefs)
+    return link_to_params(estimator, coefs)
+end
 
 """
 Compute negative log likelihood for a single observation and set of parameters.
@@ -170,14 +178,15 @@ function neg_log_likelihood_one(estimator::AbstractParametricEstimator, ts::T, e
     return -1.0 * (lh - ch)
 end
 
+
 """
 Compute NLL for all observations, assuming one set of parameters (i.e., not the regression case).
 """
-function neg_log_likelihood_inner(estimator::AbstractParametricEstimator, ts::Vector{T}, e::Union{Vector{Bool}, BitVector}, transformed_params::Vector) where T <: Real
+function neg_log_likelihood_inner(estimator::AbstractParametricEstimator, ts::Vector{T}, e::Union{Vector{Bool}, BitVector}, params::Vector) where T <: Real
     ll = 0.0
     N = length(ts)
     @inbounds for i in 1:N
-        ll += neg_log_likelihood_one(estimator, ts[i], e[i], transformed_params)
+        ll += neg_log_likelihood_one(estimator, ts[i], e[i], params)
     end
     return ll
 end
@@ -185,25 +194,18 @@ end
 """
 Compute NLL for all observations, assuming individual params for each obs (i.e., the regression case).
 """
-function neg_log_likelihood_inner(estimator::AbstractParametricEstimator, ts::Vector{T}, e::Union{Vector{Bool}, BitVector}, transformed_params::Matrix) where T <: Real
+function neg_log_likelihood_inner(estimator::AbstractParametricEstimator, ts::Vector{T}, e::Union{Vector{Bool}, BitVector}, params::Matrix) where T <: Real
     ll = 0.0
     N = length(ts)
     @inbounds for i in 1:N
-        ll += neg_log_likelihood_one(estimator, ts[i], e[i], transformed_params[i, :])
+        ll += neg_log_likelihood_one(estimator, ts[i], e[i], params[i, :])
     end
     return ll
 end
 
-function transform_params(estimator::AbstractParametricEstimator, params)
-    # link_funcs = param_links(estimator)
-    # transformed_params = link_to_params(link_funcs, params)
-    transformed_params = link_to_params(estimator, params)
-    return transformed_params
-end
-
-function neg_log_likelihood(estimator::AbstractParametricEstimator, ts, e, params)
-    transformed_params = transform_params(estimator, params)
-    return neg_log_likelihood_inner(estimator, ts, e, transformed_params)
+function neg_log_likelihood(estimator::AbstractParametricEstimator, ts, e, coefs)
+    params = coefs_to_params(estimator, coefs)
+    return neg_log_likelihood_inner(estimator, ts, e, params)
 end
 
 # function neg_log_likelihood(estimator::RidgePenaltyEstimator, ts, e, params)
@@ -213,37 +215,13 @@ end
 #     return neg_log_likelihood(estimator.estimator, ts, e, transformed_params) + penalty
 # end
 
-""" Given a vector of initialized params and X, deal with the shapes and \beta in matrix form."""
-function reshape_params(estimator::AbstractParametricEstimator, X, β)
-    num_parameters = num_params(estimator)
-    num_predictors = size(X, 2)
-    return transpose(reshape(β, num_parameters, num_predictors))
+
+function neg_log_likelihood(estimator::AbstractParametricEstimator, ts, e, X, coefs)
+    params = coefs_to_params(estimator, X, coefs)
+    return neg_log_likelihood_inner(estimator, ts, e, params)
 end
 
-function compute_params(estimator::AbstractParametricEstimator, X, params)
-    β = reshape_params(estimator, X, params)
-    return X * β
-end
-
-function neg_log_likelihood(estimator::AbstractParametricEstimator, ts, e, X, params)
-    Xb = compute_params(estimator, X, params)
-    transformed_params = transform_params(estimator, Xb)
-    return neg_log_likelihood_inner(estimator, ts, e, transformed_params)
-end
-
-# function neg_log_likelihood(estimator::RidgePenaltyEstimator, ts, e, X, params)
-#     num_parameters = num_params(estimator.estimator)
-#     # Xb = compute_params(estimator.estimator, X, params)
-#     params_to_penalize = params[(num_parameters+1):end]
-#     penalty = sum(params_to_penalize.^2) 
-#     # transformed_params = transform_params(estimator.estimator, Xb)
-#     # nll = neg_log_likelihood_inner(estimator.estimator, ts, e, transformed_params)
-#     nll = neg_log_likelihood(estimator.estimator, ts, e, X, params)
-#     N = size(X, 1)
-#     return nll / N + penalty * estimator.λ / 2
-# end
-
-function param_optimization(estimator::AbstractParametricEstimator, obj, x0)
+function param_optimization(obj, x0)
     func = TwiceDifferentiable(obj, x0, autodiff=:forward)
     res = optimize(func, x0, LBFGS())
     return res
@@ -255,8 +233,7 @@ function calculate_variance(nll, β)
     return variance
 end
 
-function calculate_stderrors(nll, β)
-    variance = calculate_variance(nll, β)
+function calculate_stderrors(variance)
     ses = sqrt.(diag(variance))
     return ses
 end
@@ -280,10 +257,10 @@ end
 function fit(estimator::AbstractParametricEstimator, ts, e)
     nll(β) = neg_log_likelihood(estimator, ts, e, β)
     β0 = initialize_params(estimator, ts, e)
-    res = param_optimization(estimator, nll, β0)
+    res = param_optimization(nll, β0)
     β = Optim.minimizer(res)
     vcov = calculate_variance(nll, β)
-    stderrors = calculate_stderrors(nll, β)
+    stderrors = calculate_stderrors(vcov)
     names = param_names(estimator)
     return FittedParametricEstimator(estimator, β, vcov, stderrors, names, res, false)
 end
@@ -297,11 +274,12 @@ function fit(estimator::AbstractParametricEstimator, ts, e, X; add_intercept=tru
 
     nll(β) = neg_log_likelihood(estimator, ts, e, X_input, β)
     β0 = initialize_params(estimator, ts, e, X_input)
-    res = param_optimization(estimator, nll, β0)
+    res = param_optimization(nll, β0)
     β = Optim.minimizer(res)
-    stderrors = calculate_stderrors(nll, β)
+    vcov = calculate_variance(nll, β)
+    stderrors = calculate_stderrors(vcov)
     names = param_names(estimator, X_input)
-    return FittedParametricEstimator(estimator, β, stderrors, names, res, true)
+    return FittedParametricEstimator(estimator, β, vcov, stderrors, names, res, true)
 end
 
 # function fit(estimator::RidgePenaltyEstimator, ts, e, X; add_intercept=true)
@@ -324,12 +302,15 @@ stderror(estimator::FittedParametricEstimator) = estimator.stderrors
 param_names(fitted::FittedParametricEstimator) = fitted.param_names
 
 
+function zvalue(confidence_level)
+    α = 1 - confidence_level
+    return quantile(Normal(), 1 - α/2)
+end
 
 function confint(fitted::FittedParametricEstimator; confidence_level=0.95)
     β = coef(fitted)
     se = stderror(fitted)
-    α = 1 - confidence_level
-    z = quantile(Normal(), 1 - α/2)
+    z = zvalue(confidence_level)
     ci_width = se .* z
     lower = β .- ci_width
     upper = β .+ ci_width
@@ -338,7 +319,7 @@ end
 
 function results_summary(fitted::FittedParametricEstimator; confidence_level=0.95)
     coefs = coef(fitted)
-    cis = confint(fitted)
+    cis = confint(fitted; confidence_level)
     names = param_names(fitted)
     return DataFrame(parameter=names, coef=coefs, ci_lower=cis.lower, ci_upper=cis.upper) 
 end
@@ -352,45 +333,90 @@ function check_fit_type(fitted::FittedParametricEstimator, needs_covariates)
 end
 
 # TODO: rename this
-function fitted_params(fitted::FittedParametricEstimator, X; add_intercept=true)
+# function fitted_params(fitted::FittedParametricEstimator, X; add_intercept=true)
+#     if add_intercept
+#         X_input = create_intercept(X)
+#     else
+#         X_input = X
+#     end
+#     coefs = coef(fitted)
+#     coefs_reshaped = reshape_params(fitted.estimator, X_input, coefs)
+#     params = X_input * coefs_reshaped
+#     return params
+# end
+
+
+function cumulative_hazard_from_coefs(estimator::AbstractParametricEstimator, ts, coefs)
+    params = coefs_to_params(estimator, coefs)
+    return cumulative_hazard(estimator, ts, params)
+end
+
+function cumulative_hazard_from_coefs(estimator::AbstractParametricEstimator, ts, X, coefs)
+    params = coefs_to_params(estimator, X, coefs)[1, :]
+    return cumulative_hazard(estimator, ts, params)
+end
+
+function log_cumulative_hazard_from_coefs(estimator::AbstractParametricEstimator, ts, coefs)
+    chaz = cumulative_hazard_from_coefs(estimator, ts, coefs)
+    return log(chaz)
+end
+
+function log_cumulative_hazard_from_coefs(estimator::AbstractParametricEstimator, ts, X, coefs)
+    chaz = cumulative_hazard_from_coefs(estimator, ts, X, coefs)
+    return log(chaz)
+end
+
+# add non-regression method
+
+function predict_cumulative_hazard(fitted, ts; confidence_level=0.95)
+    check_fit_type(fitted, false)
+    coefs = coef(fitted)
+    nt = length(ts)
+    chs = Array{Float64}(undef, nt)
+    lowers = Array{Float64}(undef, nt)
+    uppers = Array{Float64}(undef, nt)
+    vcov = fitted.vcov
+    z = zvalue(confidence_level)
+    for i in 1:nt
+        ch = cumulative_hazard_from_coefs(fitted.estimator, ts[i], coefs)
+        chs[i] = ch
+        grad = ForwardDiff.gradient(c -> log_cumulative_hazard_from_coefs(fitted.estimator, ts[i], c), coefs)
+        var = grad' * vcov * grad
+        se = sqrt(var)
+        lower = ch * exp(-z * se)
+        upper = ch * exp(z * se)
+        lowers[i] = lower
+        uppers[i] = upper
+    end
+    return (cumulative_hazard=chs, ci_lower=lowers, ci_upper=uppers)
+end
+
+function predict_cumulative_hazard(fitted, ts, X; add_intercept=true, confidence_level=0.95)
+    check_fit_type(fitted, true)
     if add_intercept
         X_input = create_intercept(X)
     else
         X_input = X
     end
     coefs = coef(fitted)
-    coefs_reshaped = reshape_params(fitted.estimator, X_input, coefs)
-    params = X_input * coefs_reshaped
-    return params
-end
-
-
-function fitted_params(fitted::FittedParametricEstimator)
-    return coef(fitted)
-end
-
-# add non-regression method
-function predict_cumulative_hazard(fitted::FittedParametricEstimator, ts, X; add_intercept=true)
-    check_fit_type(fitted, true)
-    params = fitted_params(fitted, X; add_intercept=add_intercept)
-    transformed_params = transform_params(fitted.estimator, params)
-    nt = length(ts)
-    print(nt)
-    chs = Array{Float64}(undef, nt)
-    for i in 1:nt
-        chs[i] = cumulative_hazard(fitted.estimator, ts[i], transformed_params[i, :])
-    end
-    return chs
-end
-
-function predict_cumulative_hazard(fitted::FittedParametricEstimator, ts)
-    check_fit_type(fitted, false)
-    params = fitted_params(fitted)
-    transformed_params = transform_params(fitted.estimator, params)
     nt = length(ts)
     chs = Array{Float64}(undef, nt)
+    lowers = Array{Float64}(undef, nt)
+    uppers = Array{Float64}(undef, nt)
+    vcov = fitted.vcov
+    z = zvalue(confidence_level)
     for i in 1:nt
-        chs[i] = cumulative_hazard(fitted.estimator, ts[i], transformed_params)
+        # keep as matrix
+        Xi = X_input[i:i, :]
+        ch = cumulative_hazard_from_coefs(fitted.estimator, ts[i], Xi, coefs)
+        chs[i] = ch
+        grad = ForwardDiff.gradient(c -> log_cumulative_hazard_from_coefs(fitted.estimator, ts[i], Xi, c), coefs)
+        var = grad' * vcov * grad
+        se = sqrt(var)
+        lower = ch * exp(-z * se)
+        upper = ch * exp(z * se)
+        lowers[i] = lower
+        uppers[i] = upper
     end
-    return chs
+    return (cumulative_hazard=chs, ci_lower=lowers, ci_upper=uppers)
 end
