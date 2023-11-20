@@ -122,6 +122,8 @@ function chaz_raw(estimator, t, params_raw)
     return SurvivalModels.cumulative_hazard(estimator, t, params)
 end
 
+#TODOs: think about the log transform approach to avoid negatives
+# think about whether need to define more wrappers around CH etc (probably not, just deal with in CI methods)
 @showprogress for i in 1:N_sims
     N = 25_000
     df = sim_mixture_cure(Weibull(α, θ), 1 - c; N=N, thresh=100)
